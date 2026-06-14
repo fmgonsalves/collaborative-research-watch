@@ -112,9 +112,11 @@ def test_unsupported_document_is_reported_without_record(tmp_path: Path) -> None
     manager = WorkspaceManager()
     manager.select(str(tmp_path))
     (tmp_path / "sources" / "archive.zip").write_text("zip-ish", encoding="utf-8")
+    (tmp_path / "sources" / "photo.jpg").write_text("jpg-ish", encoding="utf-8")
 
     report = ResearchRepository(tmp_path).sync()
 
-    assert report.invalid == 1
-    assert report.issues[0].code == "unsupported_document_type"
+    assert report.invalid == 2
+    assert [issue.code for issue in report.issues] == ["unsupported_document_type", "unsupported_document_type"]
+    assert [issue.path for issue in report.issues] == ["sources/archive.zip", "sources/photo.jpg"]
     assert not list((tmp_path / "records" / "sources").glob("src_*.md"))

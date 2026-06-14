@@ -98,6 +98,7 @@ textarea {
 }
 
 .app-shell {
+  --page-gap: 1rem;
   min-height: 100vh;
   padding: 1rem;
 }
@@ -105,7 +106,7 @@ textarea {
 .topbar {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
+  gap: var(--page-gap);
   align-items: flex-start;
   margin-bottom: 1rem;
 }
@@ -130,7 +131,7 @@ textarea {
 .workspace-tools {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
+  gap: var(--page-gap);
   margin-bottom: 1rem;
 }
 
@@ -164,9 +165,13 @@ textarea {
 
 .main-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(20rem, 0.65fr);
-  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--page-gap);
   align-items: start;
+}
+
+.browse-pane {
+  grid-column: span 2;
 }
 
 .browse-pane,
@@ -176,9 +181,18 @@ textarea {
 
 .filters {
   display: grid;
-  grid-template-columns: minmax(18rem, 1.5fr) repeat(4, minmax(6.5rem, 0.75fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.55rem;
   margin-bottom: 1rem;
+}
+
+.filters input {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.filters select {
+  min-width: 0;
 }
 
 .table-wrap {
@@ -207,15 +221,15 @@ th {
 }
 
 th:nth-child(1) {
-  width: 52%;
+  width: 47%;
 }
 
 th:nth-child(2) {
-  width: 10%;
+  width: 14%;
 }
 
 th:nth-child(3) {
-  width: 13%;
+  width: 14%;
 }
 
 th:nth-child(4) {
@@ -239,6 +253,12 @@ td span {
   margin-top: 0.25rem;
   color: #6a7168;
   overflow-wrap: anywhere;
+}
+
+td:nth-child(2),
+td:nth-child(3),
+td:nth-child(5) {
+  white-space: nowrap;
 }
 
 td strong,
@@ -370,6 +390,22 @@ td strong,
 
 .message.error {
   color: #9d2f2f;
+}
+
+.issue-message {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.issue-message code {
+  display: block;
+  max-width: 100%;
+  padding: 0.35rem 0.45rem;
+  border-radius: 6px;
+  background: #f7eeee;
+  color: #753333;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 980px) {

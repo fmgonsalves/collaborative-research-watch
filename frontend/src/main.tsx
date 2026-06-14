@@ -345,6 +345,10 @@ function LinkPanel({ busy, runAction, onCreated }: { busy: boolean; runAction: (
 }
 
 function ReportPanel({ report, issues, message }: { report: SyncReport | null; issues: ValidationIssue[]; message: string }) {
+  const allIssues = [...(report?.issues || []), ...issues];
+  const visibleIssues = allIssues.slice(0, 4);
+  const hiddenIssueCount = Math.max(0, allIssues.length - visibleIssues.length);
+
   return (
     <div className="tool-panel">
       <h2>Sync</h2>
@@ -360,11 +364,19 @@ function ReportPanel({ report, issues, message }: { report: SyncReport | null; i
         <p className="muted">Ready</p>
       )}
       {message && <p className="message">{message}</p>}
-      {[...(report?.issues || []), ...issues].slice(0, 4).map((issue) => (
-        <p className="message error" key={`${issue.code}-${issue.path || issue.message}`}>
-          {issue.code}: {issue.message}
-        </p>
+      {visibleIssues.map((issue) => (
+        <div className="issue-message" key={`${issue.code}-${issue.path || issue.message}`}>
+          <p className="message error">
+            {issue.code}: {issue.message}
+          </p>
+          {issue.path && <code>{issue.path}</code>}
+        </div>
       ))}
+      {hiddenIssueCount > 0 && (
+        <p className="message error">
+          Showing {visibleIssues.length} of {allIssues.length} issues. Fix these and resync to see the next set.
+        </p>
+      )}
     </div>
   );
 }
