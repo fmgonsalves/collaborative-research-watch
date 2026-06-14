@@ -68,14 +68,12 @@ This ledger tracks implementation progress for the Shared Research Collaboration
 - Verified `links.csv` stays limited to `url,title`.
 - Verified source records do not contain human comment text or human-created tag values.
 - Checked a narrow mobile viewport for basic layout presence.
+- Verified desktop layout alignment, filter sizing, long source text handling, and table Type/Status spacing in the in-app browser.
+- Verified unsupported source-file issues show the relevant file path and summarize hidden issues when there are more than four.
 
 ## Manual/User Test Scope Remaining
 
-- Select an existing user.
-- Upload a supported document.
-- Upload rejection for unsupported file types.
-- Document changed/missing states through the UI.
-- Full visual QA across more viewport sizes.
+- None remaining per user confirmation.
 
 ## Known Gaps, Risks, Follow-Ups
 
