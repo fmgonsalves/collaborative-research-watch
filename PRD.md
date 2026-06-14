@@ -2,139 +2,142 @@
 
 ## 1. Product Vision
 
-Collaborative Research Watch is a local/shared-repository demo app for teams that collect, summarize, browse, and discuss research documents and web links. The product lets users add documents to a shared folder and links to a shared CSV file, then uses an LLM-wiki intelligence layer to incrementally build a persistent Knowledge Base.
+Collaborative Research Watch is a simple shared-repository app for teams that collect, discuss, tag, and review research documents and web links. It is designed for non-technical users who already collaborate through a shared filesystem directory, shared drive, or repository-like folder and need a lightweight product layer on top of that shared collection.
 
-The first proof path intentionally avoids confidential collaboration data so the team can prove the core loop quickly:
+The core product helps teammates answer practical questions:
+
+- What documents and links has the team collected?
+- Who added useful context, tags, or comments?
+- Which sources are worth reading first?
+- What has changed since the last review?
+
+The first product path is collaboration-first:
 
 ```text
-source added -> resync -> ingest -> wiki update -> browse/search -> Q&A -> newsletter preview
+source added -> resync -> browse/search -> tag/comment -> team review
 ```
 
-Later phases add users, app-managed private annotations, private tags, newsletter preferences, privacy guardrails, Excel compatibility, and wiki health checks. The long-term product goal is a collaborative research workspace where the agent can freely use public source content and generated wiki knowledge, while private human collaboration data is never exposed to the model.
+AI is an enrichment layer, not the organizing center of the product. Later paths add AI-generated summaries and AI-generated tags so users can understand sources faster, but human collaboration records remain team-facing app data and are never sent to the model.
 
 ## 2. At-a-Glance Roadmap
 
 | Functionality | Required Phase | Notes |
 | --- | --- | --- |
 | Shared source folder | Path 1 | Users can drop supported documents into `sources/`. |
-| UI document upload | Path 1 | Uploads write into the shared source workflow. |
-| Shared link CSV | Path 1 | Users can add public web links through `links.csv`. |
-| App-generated source IDs | Path 1 | Resync assigns stable IDs to new documents and link rows in SQLite. |
-| Manual resync | Path 1 | Detects new, changed, stale, failed, and invalid sources. |
-| PDF, DOCX, text, and public web link ingestion | Path 1 | Public pages only; blocked/login-only links are marked failed or needs-manual-content. |
-| Sanitized extracted text | Path 1 | Extracted content is keyed by `source_id` and excludes local path leakage. |
-| Generated LLM-wiki | Path 1 | Includes `wiki/index.md`, `wiki/log.md`, per-source pages, topic pages, and tag pages. |
-| Browse/search/filter/sort | Path 1 | Covers source metadata, public summaries, public tags, and lifecycle status. |
-| Q&A over Knowledge Base | Path 1 | Uses wiki plus simple search; cites safe title and `source_id`. |
-| Newsletter preview | Path 1 | Generates preview-only newsletters with safe citations; no sending. |
-| Shared user CSV | Path 2 | `users.csv` is canonical and minimal; email must be unique. |
-| App-managed private comments and private tags | Path 2 | Created in the app, stored in SQLite, and never model-visible. |
-| Newsletter preferences | Path 2 | Created in the app, stored in SQLite, and used for app-side filtering only. |
-| Clean shared intake files | Path 2 | `sources/`, `links.csv`, and `users.csv` stay minimal and free of comment/preference metadata. |
-| Prompt/data boundary enforcement | Path 3 | Agent workflows receive only approved `agent_visible` fields. |
-| Automated privacy negative tests | Path 3 | Prove forbidden fields never enter prompts, wiki, answers, or newsletter previews. |
-| Agent run metadata audit logs | Path 3 | Log run metadata and source IDs, not full prompts by default. |
-| Excel compatibility | Path 4 | `.xlsx` import/export or workbook compatibility for link intake and user registry data. |
+| Shared link intake | Path 1 | Users can add links through the app UI and/or `links.csv`. |
+| Shared user registry | Path 1 | `users.csv` stores simple user records with `name` and unique `email`. |
+| Local user selection | Path 1 | Users identify themselves in the UI without real authentication. |
+| App-generated source IDs | Path 1 | Resync assigns stable IDs to new documents and links. |
+| Filesystem source registry | Path 1 | Source records are stored as Markdown files under `records/sources/`. |
+| Manual resync | Path 1 | Detects new, changed, removed, failed, and invalid sources. |
+| App-managed comments | Path 1 | Team-visible comments are Markdown files under `records/comments/`. |
+| App-managed human tags | Path 1 | Team-visible human tags are stored under `records/human-tags/`. |
+| Generated human-readable index | Path 1 | `index.md` is regenerated by the app as a catalog of the shared collection. |
+| Browse/search/filter/sort | Path 1 | Uses an in-memory index built from shared files. |
+| Source detail view | Path 1 | Shows source metadata, team comments, human tags, and source open actions. |
+| AI summaries | Path 2 | Generated as Markdown files under `records/ai/`. |
+| AI-generated tags | Path 2 | Stored in AI Markdown frontmatter and shown separately from human tags. |
+| Content extraction/fetching | Path 2 | Backend extracts or fetches readable content for supported documents and public links. |
+| Confidentiality guardrails | Path 3 | Model workflows receive only approved source data, never team-confidential fields. |
+| Automated negative tests | Path 3 | Prove forbidden fields do not enter prompts or generated AI outputs. |
+| AI run metadata audit logs | Path 3 | Log run metadata and source IDs, not full prompts by default. |
 | Demo hardening and seed data | Path 4 | Adds sample dataset, reset/rebuild flows, setup polish, and better error handling. |
-| LLM-wiki lint/health check | Later | Scans generated wiki only for stale claims, contradictions, or missing links. |
+| Excel compatibility | Path 4 | Optional `.xlsx` import/export or workbook compatibility for links and users. |
 
 ## 3. Phased Delivery
 
-### Path 1: Public Knowledge Base PoC
+### Path 1: Shared Research Collaboration MVP
 
-Path 1 proves the core Knowledge Base experience without users or private collaboration data.
+Path 1 proves the core team collaboration loop without depending on AI.
 
 Required capabilities:
 
 - Add documents through a shared `sources/` folder and through UI upload.
-- Add web links through `links.csv` and through the UI.
-- Support PDF, DOCX, text files, and public web links.
-- Run manual resync to detect new or changed sources.
+- Add web links through the UI and/or `links.csv`.
+- Support a simple shared `users.csv` with `name` and unique `email`.
+- Let users select their local identity in the UI without password, OAuth, SSO, or production authentication.
+- Run manual resync to detect new, changed, removed, failed, and invalid sources.
 - Assign app-generated `source_id` values during resync.
-- Store source registry state in SQLite.
-- Keep the same `source_id` when a registered document changes; mark it stale and reingest it.
-- Extract source text into sanitized artifacts keyed by `source_id`.
-- Generate summaries, public tags, per-source wiki pages, topic/tag pages, `wiki/index.md`, and `wiki/log.md`.
-- Browse, search, filter, and sort available sources.
-- Ask questions over the generated wiki plus simple search.
-- Generate newsletter previews from selected topics/tags.
-- Show safe citations in answers and newsletter previews.
+- Store source registry/detail records as app-managed Markdown files under `records/sources/`.
+- Store human comments as app-managed Markdown files under `records/comments/`.
+- Store human tag assignments as app-managed files under `records/human-tags/`.
+- Keep the same `source_id` when a registered document changes; mark it changed or stale for review.
+- Build browse, search, filter, and sort state from shared files on startup and resync.
+- Regenerate `index.md` as a human-readable catalog of sources, source records, comments, and AI files where available.
+- View source detail pages with metadata, human tags, comments, and source open actions.
+- Add, edit, and view team-visible comments on sources.
+- Add, edit, and view team-visible human tags on sources.
+- Keep human comments and human tags out of source files and `links.csv`.
 
 Path 1 non-goals:
 
-- No real authentication.
-- No users, private comments, private tags, or newsletter subscriptions.
+- No AI summaries or AI-generated tags.
+- No real authentication, permissions, or per-user access control.
 - No real email sending.
-- No filesystem watcher.
+- No filesystem watcher requirement.
 - No vector database requirement.
-- No production security guarantee.
+- No shared database requirement.
 
-### Path 2: App-Managed Collaboration Layer
+### Path 2: AI Enrichment
 
-Path 2 adds human collaboration records while preserving the rule that private collaboration data is not model-visible. Shared files remain clean intake and registry surfaces; comments, private tags, and preferences are created and managed inside the app.
+Path 2 adds AI-generated metadata that helps users decide what to read faster. AI outputs supplement human collaboration records; they do not replace them.
 
 Required capabilities:
 
-- Add `users.csv` as the canonical user registry.
-- Require user email addresses to be unique.
-- Let users identify themselves locally in the UI without real authentication.
-- Store private comments, private tags, and newsletter preferences in SQLite.
-- Require private comments, private tags, and newsletter preferences to be edited through the app UI.
-- Keep `sources/`, `links.csv`, and `users.csv` minimal and free of app-managed collaboration metadata.
-- Keep private collaboration data human-facing only.
+- Extract readable text from supported documents.
+- Fetch readable content for public web links where possible.
+- Mark blocked, paywalled, login-only, or inaccessible links with actionable failure status.
+- Generate AI summaries for supported sources.
+- Generate AI-generated tags for supported sources.
+- Store AI summaries and AI-generated tags in Markdown files under `records/ai/`, keyed by `source_id`.
+- Store AI-generated tags in YAML frontmatter so the app can load them quickly.
+- Display AI-generated tags distinctly from human-created tags.
+- Allow users to browse, search, filter, and sort using AI summaries and AI-generated tags.
+- Show source processing status and errors in the UI.
 
 Path 2 non-goals:
 
-- No password, OAuth, SSO, or production auth.
-- No use of private comments, private tags, users, emails, or user preferences in model prompts.
-- No private-data-driven agent answers or newsletters.
-- No direct spreadsheet/CSV editing for private comments, private tags, or newsletter preferences.
+- No use of human comments, human tags, user names, user emails, or preferences in model prompts.
+- No Q&A requirement.
+- No newsletter requirement.
+- No generated knowledge-base requirement beyond bounded per-source AI Markdown files and the app-generated catalog.
+- No vector database requirement.
 
-### Path 3: Privacy Guardrails and Enforcement
+### Path 3: Confidentiality Guardrails and Enforcement
 
-Path 3 turns the intended privacy boundary into enforceable behavior.
+Path 3 turns the intended model boundary into enforceable behavior.
 
 Required capabilities:
 
-- Add automated negative tests proving `app_internal` and `private_sensitive` fields never appear in prompts, generated wiki content, Q&A answers, or newsletter previews.
-- Add prompt/input construction boundaries so agent workflows receive only approved `agent_visible` fields.
-- Add metadata audit logs for model/agent runs.
+- Add prompt/input construction boundaries so AI workflows receive only approved `source_public` fields.
+- Add automated negative tests proving `app_internal` and `team_confidential` fields never appear in prompts.
+- Add automated negative tests proving forbidden fields do not appear in AI summaries, AI-generated tags, or later generated AI outputs.
+- Add metadata audit logs for AI/model runs.
+- Store AI run metadata without full prompts by default.
 - Log run ID, workflow type, source IDs used, status, timestamps, and error class where relevant.
-- Do not log full prompts by default.
-- Ensure source citations generated by the model use safe source handles only.
 
 Path 3 non-goals:
 
 - No full production access-control model.
 - No deployment-grade security certification.
-- No guarantee that humans cannot manually copy private data into public source documents.
+- No guarantee that humans cannot manually copy confidential information into public source documents.
+- No guarantee of secrecy between teammates who already share the workspace.
 
-### Path 4: Excel Compatibility and Demo Hardening
+### Path 4: Demo Hardening and Compatibility
 
 Path 4 adds compatibility, polish, and stronger demo readiness.
 
 Required capabilities:
 
-- Support `.xlsx` import/export or workbook compatibility for link intake and user registry data.
+- Provide a small seed dataset that proves intake, collaboration, browsing, search, tagging, comments, generated index, and AI enrichment.
+- Improve validation, reset/rebuild flows, error messages, and setup instructions.
+- Support optional `.xlsx` import/export or workbook compatibility for link intake and user registry data.
 - Preserve the same data classification and model-visibility rules for Excel-backed records.
-- Provide a small seed dataset that proves ingestion, browsing, Q&A, and newsletter preview.
-- Improve validation, reset/rebuild flows, error messages, and demo setup.
-- Keep CSV as the initial canonical shared format unless a later design explicitly replaces it.
+- Keep CSV and Markdown as the initial simple shared formats unless a later design explicitly replaces them.
 
-### Later: LLM-wiki Lint and Health Check
+## 4. Shared Repository and App Data Architecture
 
-The lint operation is a committed later capability, not a Path 1 blocker.
-
-Required capabilities:
-
-- Scan generated wiki pages for stale claims, contradictions, orphan pages, missing cross-references, missing topic pages, and source coverage gaps.
-- Produce a human-readable health report.
-- Suggest safe wiki maintenance actions.
-- Never inspect or use private collaboration data.
-
-## 4. Shared Repository and Knowledge Base Architecture
-
-The shared repository is the product's portable source of truth. Users and beta testers should be able to share this directory through a filesystem, shared drive, synced folder, or repository-like workflow.
+The shared repository is the product's portable team workspace. Users and beta testers should be able to share this directory through a filesystem, shared drive, synced folder, or repository-like workflow.
 
 Recommended layout:
 
@@ -142,51 +145,60 @@ Recommended layout:
 research-watch-root/
   sources/
     ...
-  extracted/
-    src_...txt
-  wiki/
-    index.md
-    log.md
-    sources/
-    topics/
-    tags/
   links.csv
   users.csv
-  app.sqlite
+  records/
+    sources/
+      src_*.md
+    comments/
+      comment_*.md
+    human-tags/
+      tag_*.md
+    ai/
+      src_*.md
+  index.md
 ```
-
-`wiki/sources/` contains generated per-source wiki pages such as `wiki/sources/src_abc123.md`. These are not raw source files; they are agent-generated summaries and synthesis pages keyed by safe `source_id` values.
-
-Path 1 requires `sources/`, `extracted/`, `wiki/`, `links.csv`, and `app.sqlite`. Later paths add `users.csv` records and additional SQLite tables for app-managed collaboration records.
 
 Shared files have intentionally narrow roles:
 
 - `sources/`: human-editable document intake.
-- `links.csv`: human-editable public link intake.
-- `users.csv`: human-editable user registry with `name` and unique `email`.
-- `app.sqlite`: app-managed state, including source registry records, local document paths, content hashes, ingest status, private comments, private tags, newsletter preferences, audit metadata, cache/index data, and run metadata.
+- `links.csv`: simple shared link intake for public or team-approved source URLs.
+- `users.csv`: simple shared user registry with `name` and unique `email`.
+- `records/sources/`: app-managed source registry and source detail records with YAML frontmatter.
+- `records/comments/`: app-managed, human-authored comment files with YAML frontmatter and Markdown body.
+- `records/human-tags/`: app-managed human tag assignment files with YAML frontmatter.
+- `records/ai/`: app-managed AI output files with YAML frontmatter and Markdown body.
+- `index.md`: app-generated human-readable catalog for browsing the shared folder outside the app.
 
-Users may add sources outside the UI only by dropping documents into `sources/` or adding public links to `links.csv`. Users may edit the user registry outside the UI only through `users.csv`. All comments, private tags, and newsletter preferences must be created and edited in the app.
+Users may add sources outside the UI by dropping documents into `sources/` or adding links to `links.csv`. Users may edit the user registry outside the UI through `users.csv`. Human comments, human tags, source records, AI summaries, AI-generated tags, and `index.md` are app-managed files.
 
-### SQLite Source Registry vs Wiki Index
+Small per-record files are preferred over a shared database so multiple teammates can use a shared folder with fewer lock and conflict risks. At the expected MVP scale of a few hundred documents, a few hundred comments, and around 50 tags, the app can rebuild its browse/search/filter state by scanning the shared files on startup and resync.
 
-The canonical source registry lives in `app.sqlite`, not in a CSV file. It stores app-managed source records, including stable source IDs, source type, source location, content hash, ingest lifecycle status, generated summary, generated public tags, and generated wiki page references.
+Optional local caches, including SQLite or JSON cache files, may be added later for performance. Such caches must be rebuildable from shared files and must not become canonical product data.
 
-The source registry intentionally contains mixed-visibility fields. Some fields are `agent_visible`, such as source ID, source type, safe title, generated public summary, generated public tags, and wiki page references. Other fields are `app_internal`, such as full local document paths, content hashes, parser metadata, run IDs, and internal error details.
+### Source Registry
 
-`wiki/index.md` is a sanitized agent-readable projection. It helps humans and the agent navigate the generated wiki, but it is not the operational source registry.
+The canonical source registry lives in app-managed Markdown files under `records/sources/`. Each source record is keyed by `source_id` and contains machine-readable YAML frontmatter plus a readable Markdown body for source details.
 
-The agent may read generated wiki files and sanitized source metadata derived by the app. The agent must not receive local document paths, content hashes, parser internals, user data, private annotations, private tags, newsletter preferences, or raw SQLite records.
+The app is responsible for validating source records, exposing appropriate fields in the UI, and constructing AI inputs from allowed data only.
+
+### Generated Catalog
+
+`index.md` is an app-generated human-readable catalog. It should link to source records, original source files or URLs, comment records, and AI files where available.
+
+`index.md` is not the operational source of truth. The app should regenerate it from `sources/`, `links.csv`, `users.csv`, and `records/`.
 
 ### Source Identity
 
-Source IDs are app-generated. Users may manually add documents without IDs and may add link rows without IDs. During resync, the app assigns missing IDs and records each source in the SQLite source registry. The app does not need to write source IDs back into `links.csv`.
+Source IDs are app-generated. Users may manually add documents without IDs and may add link rows without IDs. During resync, the app assigns missing IDs and creates or updates source records under `records/sources/`. The app does not need to write source IDs back into `links.csv`.
 
 Matching rules:
 
-- Documents are matched by existing registry record, normalized relative location, and content hash.
-- Links are matched by existing SQLite registry record or normalized public URL.
-- Changed documents keep the same `source_id`, receive an updated content hash, and become `stale` until reingested.
+- Documents are matched primarily by existing source record and normalized relative location.
+- Content hash is used to detect changed content after a document has been matched.
+- Links are matched by existing source record or normalized URL.
+- Changed documents keep the same `source_id`, receive an updated content hash, and become changed or stale until reviewed or reprocessed.
+- Removed documents or links are marked missing or removed rather than silently deleted.
 - Ambiguous duplicates are reported for human review instead of silently merged.
 
 ### Data Classification
@@ -195,18 +207,19 @@ Every product entity and field should be classified with one of these categories
 
 | Classification | Meaning | Examples |
 | --- | --- | --- |
-| `agent_visible` | May appear in prompts, generated wiki pages, Q&A answers, and newsletter previews. | source ID, source type, safe title, public URL, extracted document content, public summary, public tags |
-| `app_internal` | App/backend may use it; model must not see it. | full local path, content hash, ingest run ID, parser error detail, cache keys, SQLite index metadata |
-| `private_sensitive` | Human/user collaboration data; model must never see it. | names, emails, private comments, private tags, user preferences, sensitive project annotations |
+| `source_public` | Source content and source metadata that may be used for AI enrichment. | source ID, source type, title, source URL, extracted source content, AI summary, AI-generated tags |
+| `app_internal` | App/backend may use it; model must not see it. | full local path, content hash, parser diagnostics, cache keys, local cache metadata, run internals |
+| `team_confidential` | Team-visible collaboration data; model must never see it. | user names, user emails, human comments, human-created tags, preferences, attribution |
 
-Important privacy rules:
+Important confidentiality rules:
 
+- `team_confidential` means visible to teammates in the app but excluded from model prompts and generated AI outputs.
 - Full local document paths are never available to the model.
-- Human users may see full local paths in the UI.
-- Filenames and titles may be model-visible when treated as safe display metadata.
-- Public web URLs may be model-visible and may appear in citations.
-- Full extracted document content is model-visible for ingestion and Q&A.
-- Private comments, private tags, user identities, user emails, and newsletter preferences never influence agent-generated answers or newsletters.
+- Human users may see full local paths in the UI when needed to open files.
+- Filenames and titles may be model-visible when treated as safe source metadata.
+- Public or team-approved web URLs may be model-visible and may appear as citations or source references.
+- Extracted source content may be model-visible for AI summary and AI-generated tag generation.
+- Human comments, human-created tags, user names, user emails, attribution, and preferences never enter model prompts.
 
 ## 5. Product Requirements
 
@@ -215,151 +228,134 @@ Important privacy rules:
 Users can add sources in two ways:
 
 - Drop supported documents into `sources/`.
-- Add public web links to `links.csv` or through the UI.
+- Add web links through the UI and/or `links.csv`.
 
-The app provides a manual resync action. Resync scans shared inputs, validates CSV rows, assigns missing source IDs, detects changed content, updates lifecycle status, and queues sources for ingestion.
+The app provides a manual resync action. Resync scans `sources/`, `links.csv`, `users.csv`, and `records/`; validates rows, files, and frontmatter; assigns missing source IDs; detects changed or removed content; updates lifecycle status; rebuilds in-memory browse/search state; and regenerates `index.md`.
 
-Malformed or conflicting CSV rows are validated and reported. Valid rows continue processing; invalid rows are skipped without failing the entire sync.
+Malformed frontmatter, malformed CSV rows, conflicting records, or missing linked files are validated and reported. Valid records continue processing; invalid records are skipped without failing the entire sync.
 
 Supported lifecycle statuses:
 
-- `pending`: detected but not yet ingested.
-- `ingesting`: currently being processed.
-- `ingested`: successfully represented in the Knowledge Base.
-- `stale`: source content changed after ingestion.
-- `failed`: attempted ingestion failed.
-- `skipped_invalid`: row/source could not be processed because of validation errors.
+- `pending`: detected but not yet processed.
+- `available`: registered and visible in the app.
+- `changed`: source content changed after registration or processing.
+- `processing`: AI enrichment or extraction is currently running.
+- `processed`: AI enrichment or extraction succeeded.
+- `failed`: extraction, fetch, or processing failed.
+- `missing`: previously registered source is no longer present.
+- `skipped_invalid`: row/source/record could not be processed because of validation errors.
 
-Public web links only are required for Path 1. Blocked, paywalled, login-only, or inaccessible pages are marked failed or needs-manual-content.
+Shared intake files should remain clean and minimal. `links.csv` must not be used for comments, human tags, attribution columns, preferences, AI summaries, or AI-generated tags. Document files in `sources/` should remain raw source documents, not app metadata containers.
 
-Shared intake files should remain clean and minimal. `links.csv` must not be used for private comments, private tags, user-specific notes, or newsletter preferences. Document files in `sources/` should remain raw source documents, not app metadata containers.
+### Users and Local Identity
+
+The app supports a simple team user registry through `users.csv`.
+
+Required behavior:
+
+- `users.csv` contains only `name` and `email`.
+- Email must be unique.
+- Users can select their identity locally in the UI.
+- Selected identity is used for comment and tag attribution.
+- The MVP does not provide passwords, SSO, OAuth, roles, or production authentication.
+
+### Human Tags and Comments
+
+Human collaboration data is core Path 1 functionality.
+
+Required behavior:
+
+- Users can create, edit, and view comments on sources.
+- Users can create, edit, and view human tags on sources.
+- Comments are stored as Markdown files under `records/comments/`.
+- Human tag assignments are stored as app-managed files under `records/human-tags/`.
+- Comments and human tags are visible to teammates using the shared workspace.
+- Comments and human tags are not exported into `links.csv`, source documents, AI prompts, AI summaries, or AI-generated tags.
+- Human-created tags are visually and structurally distinct from AI-generated tags.
 
 ### Browsing and Source Detail
 
-Users can browse all registered sources with title, type, date added, ingest status, summary, public tags, and safe citation metadata.
+Users can browse all registered sources with title, type, date added, lifecycle status, human tags, comment indicators, and later AI summaries and AI-generated tags.
 
 Users can:
 
-- Search by title, summary, and public tags.
-- Filter by type, tag, and status.
-- Sort by title, date added, and status.
+- Search by title, source metadata, human tags, comments where appropriate, AI summary, and AI-generated tags.
+- Filter by type, lifecycle status, human tag, and AI-generated tag.
+- Sort by title, date added, status, and recently updated.
 - Open original documents through app-resolved paths.
-- Open public web URLs directly.
+- Open web URLs directly.
+- View a source detail page with source metadata, comments, human tags, AI summary, AI-generated tags, and processing status.
 
-The model may cite title and `source_id`; the app resolves local document paths separately for the UI.
+### AI Enrichment
 
-### LLM-wiki Generation
+AI enrichment generates helpful metadata from allowed source data.
 
-The app uses the LLM-wiki pattern from `llm-wiki.md`: raw sources are treated as source truth, and the agent maintains a persistent generated markdown wiki that compounds knowledge over time.
+Required behavior:
 
-Required generated artifacts:
+- The backend extracts or fetches readable source content.
+- The app constructs model inputs using only `source_public` fields.
+- The model generates an AI summary and AI-generated tags.
+- The app stores AI output in `records/ai/src_*.md`, keyed by `source_id`.
+- AI Markdown files use YAML frontmatter for machine-readable metadata, including `source_id`, generation metadata, status, and `ai_generated_tags`.
+- AI Markdown bodies contain human-readable summaries.
+- The UI loads AI-generated tags from frontmatter and labels AI-generated summaries and tags clearly.
+- Failed extraction, fetch, or AI generation updates source status and exposes an actionable error summary to the user.
 
-- `wiki/index.md`: sanitized content-oriented index.
-- `wiki/log.md`: chronological append-only activity log.
-- Per-source summary pages.
-- Topic pages.
-- Tag pages.
-- Cross-links between related sources, topics, and tags.
+AI workflows must not receive:
 
-The wiki is agent-owned generated content. Users can read it, but normal app workflows should treat agent workflows as responsible for keeping it consistent.
+- Human comments.
+- Human-created tags.
+- User names.
+- User emails.
+- Attribution metadata.
+- Preferences.
+- Full local paths.
+- Content hashes.
+- Parser diagnostics or internal error details.
 
-### Q&A
+### Optional Later AI Features
 
-Users can ask questions about the Knowledge Base. Path 1 Q&A uses generated wiki files, source summaries, public tags, and simple text search. Vector search is not required in Path 1.
+The product may later add AI-assisted newsletter previews, Q&A, clustering, trend detection, or richer generated research views. These are not part of the MVP.
 
-Answers must:
+Any later AI-generated feature must preserve the same model boundary:
 
-- Use only `agent_visible` content.
-- Cite title and `source_id`.
-- Include public URL citations for public web links when useful.
-- Never include full local document paths.
-- Never use private comments, private tags, users, emails, or user preferences.
-
-The agent may reread extracted source content when needed or requested, but the app must provide content through safe source IDs, not local paths.
-
-### Newsletter Preview
-
-Users can select topics/tags and generate a newsletter preview in the UI.
-
-Path 1 newsletter previews:
-
-- Are generated on demand.
-- Are not emailed.
-- Do not require users or subscriptions.
-- Include safe citations using title and `source_id`.
-- May include public URLs for public web links.
-- Never include local document paths.
-
-Later phases add user newsletter preferences in SQLite, but those preferences remain `private_sensitive` and must not be sent to the model. The app may use preferences to select eligible source IDs before invoking a newsletter workflow, but the model must not receive user identity or preference records.
-
-### Collaboration Layer
-
-In Path 2 and later, collaboration data is app-managed and edited only through the UI. The shared repository still contains clean intake files, but private collaboration records live in SQLite.
-
-Entities:
-
-- `User`: name and unique email in `users.csv`.
-- `PrivateAnnotation`: source ID, user email, comment, created/updated timestamps in SQLite.
-- `PrivateTag`: source ID, user email, private tag, created/updated timestamps in SQLite.
-- `NewsletterPreference`: user email and topic/tag selection in SQLite.
-
-All user and collaboration entities are `private_sensitive`. They are for human collaboration and app-side filtering only. They must not be included in prompts, wiki pages, Q&A answers, newsletter model calls, or agent-readable logs.
-
-The UI may show comments, private tags, and attribution to human users. These records must not be exported into `links.csv`, generated wiki pages, source documents, or any other agent-readable artifact.
+- Use only approved `source_public` data.
+- Exclude `team_confidential` and `app_internal` data.
+- Store generated outputs separately from human collaboration records.
+- Label generated outputs clearly in the UI.
 
 ## 6. Product-Level Schema
 
-The PRD defines product-level entities and visibility rules. Exact database tables, migrations, and API payloads belong in later technical design.
+The PRD defines product-level entities and visibility rules. Exact frontmatter fields, API payloads, and local indexing details belong in later technical design.
+
+All app-managed Markdown records should use YAML frontmatter for fields the app must parse, followed by a Markdown body for readable human content where useful.
 
 ### Source
 
-Represents a document or web link known to the app. Source records are stored in SQLite.
+Represents a document or web link known to the app. Source records are stored under `records/sources/`.
 
 | Field | Classification | Notes |
 | --- | --- | --- |
-| `source_id` | `agent_visible` | App-generated stable ID. |
-| `type` | `agent_visible` | `document` or `link`. |
-| `title` | `agent_visible` | Safe display title. |
-| `original_path` | `app_internal` | Full local path for documents. Never model-visible. |
-| `original_url` | `agent_visible` | Public URL for web links. |
+| `source_id` | `source_public` | App-generated stable ID. |
+| `type` | `source_public` | `document` or `link`. |
+| `title` | `source_public` | Safe display title. |
+| `relative_path` | `source_public` or `app_internal` | May be visible if safe; full local paths remain internal. |
+| `original_url` | `source_public` | Source URL for web links. |
 | `content_hash` | `app_internal` | Used for freshness detection. |
-| `date_added` | `agent_visible` | Safe metadata. |
-| `last_ingested_at` | `app_internal` | Operational status metadata. |
-| `ingest_status` | `agent_visible` | Lifecycle status shown in UI. |
-| `agent_summary` | `agent_visible` | Generated public summary. |
-| `agent_tags` | `agent_visible` | Generated public tags. |
-| `wiki_pages` | `agent_visible` | Sanitized wiki page references. |
+| `date_added` | `source_public` | Safe metadata. |
+| `last_seen_at` | `app_internal` | Operational sync metadata. |
+| `last_processed_at` | `app_internal` | Operational processing metadata. |
+| `lifecycle_status` | `source_public` | Status shown in UI. |
+| `ai_record_path` | `source_public` | Relative path to the AI Markdown file, when available. |
 
 ### Link Row
 
-Represents a user-editable link input in `links.csv`. Link rows should stay minimal; source IDs and ingest state are stored in SQLite.
+Represents a user-editable link input in `links.csv`. Link rows should stay minimal; source IDs and lifecycle state are stored in source records.
 
 | Field | Classification | Notes |
 | --- | --- | --- |
-| `url` | `agent_visible` | Public URL only in Path 1. |
-| `title` | `agent_visible` | Optional user-provided title. |
-
-### Extracted Text
-
-Represents sanitized text extracted from a source.
-
-| Field | Classification | Notes |
-| --- | --- | --- |
-| `source_id` | `agent_visible` | Links extracted content to source. |
-| `content_text` | `agent_visible` | Full source content is allowed in model calls. |
-| `extraction_metadata` | `app_internal` | Parser details, errors, or internal diagnostics. |
-
-### Wiki Page
-
-Represents generated markdown wiki content.
-
-| Field | Classification | Notes |
-| --- | --- | --- |
-| `page_path` | `agent_visible` | Path under `wiki/`, not raw source path. |
-| `title` | `agent_visible` | Page title. |
-| `related_source_ids` | `agent_visible` | Safe source references. |
-| `tags` | `agent_visible` | Public/generated tags. |
-| `content` | `agent_visible` | Generated public wiki content. |
+| `url` | `source_public` | Public or team-approved source URL. |
+| `title` | `source_public` | Optional user-provided title. |
 
 ### User
 
@@ -367,162 +363,193 @@ Represents a human collaborator in `users.csv`.
 
 | Field | Classification | Notes |
 | --- | --- | --- |
-| `name` | `private_sensitive` | Human-facing only. |
-| `email` | `private_sensitive` | Unique canonical user key. |
+| `name` | `team_confidential` | Team-facing display name. |
+| `email` | `team_confidential` | Unique canonical user key. |
 
-### Private Annotation, Private Tag, Newsletter Preference
+### Human Comment
 
-Represents later app-managed collaboration data stored in SQLite.
+Represents a team-visible comment stored under `records/comments/`.
 
 | Field | Classification | Notes |
 | --- | --- | --- |
-| `source_id` | `private_sensitive` | Private record association to a public source. |
-| `user_email` | `private_sensitive` | Links to `users.csv`. |
-| `comment` | `private_sensitive` | Private annotation text. |
-| `private_tag` | `private_sensitive` | User/company-sensitive tag. |
-| `topic_or_tag` | `private_sensitive` | Newsletter preference selection. |
-| `created_at` / `updated_at` | `private_sensitive` | Private collaboration metadata. |
+| `comment_id` | `team_confidential` | App-generated comment ID. |
+| `source_id` | `team_confidential` | Association between a team comment and a source. |
+| `user_email` | `team_confidential` | Links to `users.csv`. |
+| `created_at` / `updated_at` | `team_confidential` | Team-facing attribution metadata. |
+| Markdown body | `team_confidential` | Human-authored comment text. |
 
-## 7. Agent Workflows
+### Human Tag
 
-LangGraph is the recommended default orchestration framework for backend agent workflows. The PRD does not require exact graph nodes and edges, but each workflow must define inputs, outputs, allowed data classes, and success criteria.
+Represents a team-visible human-created tag assignment stored under `records/human-tags/`.
+
+| Field | Classification | Notes |
+| --- | --- | --- |
+| `tag_id` | `team_confidential` | App-generated tag assignment ID. |
+| `source_id` | `team_confidential` | Association between a human tag and a source. |
+| `user_email` | `team_confidential` | Links to `users.csv`. |
+| `tag` | `team_confidential` | Human-created tag value. |
+| `created_at` / `updated_at` | `team_confidential` | Team-facing attribution metadata. |
+
+### Extracted Source Content
+
+Represents readable source content prepared by the backend for AI enrichment.
+
+| Field | Classification | Notes |
+| --- | --- | --- |
+| `source_id` | `source_public` | Links extracted content to source. |
+| `content_text` | `source_public` | Source content allowed in AI enrichment. |
+| `extraction_metadata` | `app_internal` | Parser details, errors, or internal diagnostics. |
+
+### AI Output
+
+Represents AI-generated content stored under `records/ai/`.
+
+| Field | Classification | Notes |
+| --- | --- | --- |
+| `source_id` | `source_public` | Links AI output to source. |
+| `generated_at` | `source_public` | Generation timestamp. |
+| `status` | `source_public` | Generation status. |
+| `ai_generated_tags` | `source_public` | AI-generated tags in YAML frontmatter. |
+| Markdown body | `source_public` | Human-readable AI summary. |
+
+### AI Run
+
+Represents metadata about an AI enrichment run.
+
+| Field | Classification | Notes |
+| --- | --- | --- |
+| `run_id` | `app_internal` | App-generated run identifier. |
+| `workflow_type` | `app_internal` | Example: `summary`, `generated_tags`. |
+| `source_ids` | `app_internal` | Sources used by the run. |
+| `status` | `app_internal` | Run status. |
+| `started_at` / `completed_at` | `app_internal` | Timing metadata. |
+| `error_class` | `app_internal` | Sanitized error classification. |
+
+## 7. Workflows
 
 ### Resync Workflow
 
 Inputs:
 
 - Shared repository root.
-- `links.csv`.
 - `sources/` document folder.
-- Existing SQLite source registry.
+- `links.csv`.
+- `users.csv`.
+- `records/`.
 
 Steps:
 
-- Scan documents and link rows.
+- Scan documents, link rows, users, source records, comment records, human tag records, and AI records.
 - Validate CSV shape and required fields.
+- Validate user registry shape and unique emails.
+- Validate Markdown frontmatter for app-managed records.
 - Assign missing source IDs.
-- Detect new, changed, stale, failed, and invalid sources.
-- Update SQLite source registry and lifecycle status.
+- Detect new, changed, removed, failed, and invalid sources.
+- Update source records and lifecycle status.
+- Rebuild the in-memory browse/search/filter index.
+- Regenerate `index.md`.
+- Produce a validation report for the UI.
 
 Outputs:
 
-- Updated SQLite source registry.
+- Updated shared records.
+- Regenerated `index.md`.
 - Validation report.
-- Queue/list of sources requiring ingestion.
+- List of sources that may need user review or AI processing.
 
 Allowed data:
 
-- May use `app_internal` fields inside the app/backend.
-- Must not send `app_internal` or `private_sensitive` fields to the model.
+- May use `source_public`, `app_internal`, and `team_confidential` fields inside the app/backend as needed.
+- Must not send `app_internal` or `team_confidential` fields to the model.
 
-### Ingest Workflow
+### Collaboration Workflow
+
+Inputs:
+
+- Selected local user identity.
+- Source ID.
+- Human comment or human tag changes.
+
+Steps:
+
+- Validate selected user exists in `users.csv`.
+- Create or update comment records under `records/comments/`.
+- Create or update human tag records under `records/human-tags/`.
+- Attribute records to the selected user.
+- Refresh browse and source detail views.
+- Regenerate `index.md` when catalog fields are affected.
+
+Outputs:
+
+- Stored team-visible comment or human tag.
+- Updated source detail and browse/search state.
+- Updated catalog when relevant.
+
+Allowed data:
+
+- May use `team_confidential` fields in app/backend and UI.
+- Must not send `team_confidential` fields to the model.
+
+### AI Enrichment Workflow
 
 Inputs:
 
 - Source ID.
 - Source type.
 - Safe title.
-- Public URL for web links.
-- Extracted source content.
-- Existing sanitized wiki index and relevant wiki pages.
+- Public or team-approved URL for web links.
+- Extracted or fetched source content.
 
 Steps:
 
-- Extract or fetch readable content.
-- Persist sanitized extracted text.
-- Summarize source.
-- Generate public tags.
-- Create/update per-source wiki page.
-- Create/update topic and tag pages.
-- Update `wiki/index.md`.
-- Append to `wiki/log.md`.
-- Update ingest status.
+- Extract or fetch readable content through the backend.
+- Construct model input from `source_public` fields only.
+- Generate AI summary.
+- Generate AI-generated tags.
+- Store generated output in `records/ai/src_*.md`.
+- Store `ai_generated_tags` in YAML frontmatter.
+- Update lifecycle and processing status.
+- Record run metadata without full prompts by default.
+- Regenerate `index.md` when AI fields are affected.
 
 Outputs:
 
-- Source summary.
-- Public tags.
-- Generated/updated wiki pages.
-- Updated safe index and log.
+- AI summary Markdown.
+- AI-generated tags.
+- Updated processing status.
+- AI run metadata.
+- Updated catalog when relevant.
 
 Allowed data:
 
-- May use full document content.
-- May use public URL content.
-- Must not use full local paths, content hashes, private comments, private tags, users, emails, or preferences.
+- May use source content and safe source metadata.
+- Must not use full local paths, content hashes, parser diagnostics, human comments, human tags, user names, user emails, attribution, or preferences.
 
-### Query Workflow
+### Search and Browse Workflow
 
 Inputs:
 
-- User question.
-- Sanitized wiki pages.
-- Safe source metadata.
-- Extracted content for relevant source IDs when needed.
+- Source records.
+- Human comments and human tags.
+- AI summaries and AI-generated tags where available.
+- Search, filter, and sort parameters.
 
 Steps:
 
-- Search wiki index, summaries, public tags, and extracted text.
-- Select relevant source IDs and wiki pages.
-- Generate answer grounded in available content.
-- Return safe citations.
+- Build or refresh an in-memory index from shared files.
+- Search and filter source records using the in-memory index.
+- Combine source metadata, human collaboration data, and AI-generated metadata for UI display.
+- Preserve visual distinction between human-created and AI-generated fields.
 
 Outputs:
 
-- Answer text.
-- Citations by title and `source_id`.
-- Public URLs where appropriate.
+- Source list.
+- Source detail data.
 
 Allowed data:
 
-- Only `agent_visible` data.
-
-### Newsletter Workflow
-
-Inputs:
-
-- Selected public topics/tags.
-- Matching source IDs.
-- Safe summaries, public tags, wiki pages, and extracted content as needed.
-
-Steps:
-
-- Select relevant public source material.
-- Generate a readable newsletter preview.
-- Include safe citations.
-
-Outputs:
-
-- Newsletter title.
-- Newsletter body.
-- Safe source list.
-
-Allowed data:
-
-- Only `agent_visible` data.
-- Later phases may use SQLite-stored user preferences app-side to choose source IDs, but the model must not receive user or preference records.
-
-### Lint Workflow
-
-Inputs:
-
-- Generated wiki files.
-- Safe source registry projection.
-- Public source summaries/tags.
-
-Steps:
-
-- Detect stale pages, contradictions, orphan pages, missing cross-links, missing concepts, and coverage gaps.
-- Produce a health report and proposed maintenance actions.
-
-Outputs:
-
-- Wiki health report.
-- Suggested safe updates.
-
-Allowed data:
-
-- Only `agent_visible` data.
+- May use all data classes for app-side and UI behavior.
+- Must not expose `app_internal` fields as user-facing content unless explicitly needed for local file open actions.
 
 ## 8. Technology Defaults
 
@@ -530,68 +557,71 @@ These are recommended defaults for the demo implementation. Later technical desi
 
 - Frontend: React.
 - Backend: Python with FastAPI.
-- Agent orchestration: LangGraph.
 - Model provider: OpenAI-compatible chat/model APIs configured through environment variables.
-- Shared intake and generated files: raw source files, `links.csv`, `users.csv`, extracted text files, and generated markdown wiki.
-- App-managed SQLite: canonical store for source registry records, private comments, private tags, newsletter preferences, audit metadata, cache/index data, run metadata, and UI performance state.
-- Search in Path 1: generated wiki plus simple text search.
-- Search later: vector search may be added if needed, but it is not required for Path 1.
-- Excel: required later as import/export or workbook compatibility for link intake and user registry data.
+- Shared intake files: raw source files, `links.csv`, and `users.csv`.
+- App-managed shared records: Markdown files with YAML frontmatter under `records/`.
+- Human-readable catalog: app-generated `index.md`.
+- Search in Path 1: in-memory search and filtering rebuilt from shared files on startup and resync.
+- Search later: local cache files, local SQLite, richer indexing, or vector search may be added if needed, but none are required for the MVP or canonical storage.
+- Excel: optional later import/export or workbook compatibility for link intake and user registry data.
 
 ## 9. Acceptance Criteria
 
 ### Path 1 Acceptance
 
-- Dropping a supported document into `sources/` and running resync creates or updates a SQLite source registry record.
-- Adding a row to `links.csv` causes resync to assign a stable source ID in SQLite.
-- Invalid CSV rows are reported and skipped without failing the entire sync.
-- Supported documents and public links are extracted, summarized, tagged, and represented in the generated wiki.
-- Changed documents keep the same source ID, become stale, and can be reingested.
-- Browse/search/filter/sort works over registered sources.
-- Q&A answers cite safe title and source ID.
-- Q&A answers never include full local paths.
-- Newsletter preview includes safe citations.
-- A small seed dataset proves ingest, browse, Q&A, and newsletter flows.
+- A non-technical user can add a supported document to `sources/`, run resync, and see it in the app.
+- A user can add a link through the UI and/or `links.csv`, run resync, and see it in the app.
+- Invalid link rows are reported and skipped without failing the entire sync.
+- `users.csv` stores users with unique email addresses.
+- `users.csv` contains only `name` and `email`.
+- Users can select their local identity without real authentication.
+- Adding a document or link creates or updates a source record under `records/sources/`.
+- Users can add, edit, and view human comments on sources.
+- Human comments are stored as Markdown files under `records/comments/`.
+- Users can add, edit, and view human tags on sources.
+- Human tags are stored as app-managed files under `records/human-tags/`.
+- Human comments and human tags are not written into source files or `links.csv`.
+- The app can rebuild browse/search/filter state from shared files alone.
+- `index.md` is regenerated and links to relevant source records, original files or URLs, comments, and AI files where available.
+- Browse/search/filter/sort works over registered sources, lifecycle status, human tags, and comments where appropriate.
+- Source detail pages show source metadata, comments, human tags, and open actions.
+- Changed documents keep the same source ID and are marked changed or stale.
 
 ### Path 2 Acceptance
 
-- `users.csv` stores users with unique email addresses.
-- `users.csv` contains only `name` and `email`.
-- Private annotations, private tags, and newsletter preferences are created and edited only through the UI.
-- Private annotations, private tags, and newsletter preferences are stored in SQLite.
-- `links.csv` remains free of private comments, private tags, attribution columns, and newsletter preferences.
-- Private records remain human-facing only.
-- Agent workflows do not receive private collaboration data.
+- Supported documents and public links can be extracted or fetched for AI enrichment.
+- AI summaries are generated as Markdown files under `records/ai/`.
+- AI-generated tags are parsed from YAML frontmatter in AI Markdown files.
+- The UI loads and displays AI-generated tags from frontmatter.
+- AI-generated tags are visually and structurally distinct from human-created tags.
+- Failed extraction, inaccessible links, or model errors show actionable status without breaking resync.
+- Browse/search/filter/sort can use AI summaries and AI-generated tags once available.
 
 ### Path 3 Acceptance
 
-- Automated negative tests verify `app_internal` and `private_sensitive` fields do not appear in constructed prompts.
-- Automated negative tests verify forbidden fields do not appear in generated wiki pages, Q&A answers, or newsletter previews.
-- Metadata audit logs record model/agent run ID, workflow type, source IDs used, status, and timestamps.
+- Automated negative tests verify `app_internal` and `team_confidential` fields do not appear in constructed prompts.
+- Automated negative tests verify forbidden fields do not appear in AI summaries, AI-generated tags, or later generated AI outputs.
+- Metadata audit logs record model/AI run ID, workflow type, source IDs used, status, and timestamps.
 - Full prompts are not logged by default.
 
 ### Path 4 Acceptance
 
-- `.xlsx` import/export or workbook compatibility works for link intake and user registry data.
+- A small seed dataset proves source intake, user selection, comments, human tags, generated catalog, browsing, search, and AI enrichment.
+- Demo reset/rebuild flow can rebuild app state and optional caches from canonical shared files.
+- Setup instructions allow a new tester to run the demo quickly.
+- Optional `.xlsx` import/export or workbook compatibility works for link intake and user registry data.
 - Excel compatibility preserves the same field classifications and model-visibility rules as CSV.
-- Demo reset/rebuild flow can recreate cache/index tables from canonical shared files, SQLite source records, and wiki artifacts.
-- Seed data and setup instructions allow a new tester to run the demo quickly.
 
 ## 10. Open Decisions for Later Technical Design
 
 - Exact React app structure and component system.
 - Exact FastAPI route design.
 - Exact CSV column order and validation schema for `links.csv` and `users.csv`.
-- Exact SQLite schema for source registry records, private annotations, private tags, newsletter preferences, audit metadata, and cache/index data.
-- Exact source ID format.
-- Exact extracted text file format.
-- Exact markdown page templates.
-- Exact LangGraph graph nodes, state objects, and persistence/checkpointer choices.
-- Whether vector search is needed after Path 1.
+- Exact YAML frontmatter fields for source records, comments, human tags, AI outputs, and AI run metadata.
+- Exact source ID, comment ID, and tag ID formats.
+- Exact extraction storage format, if extracted content is persisted outside normal source and AI records.
+- Exact AI workflow implementation, orchestration library, and retry behavior.
+- Whether newsletter preview, Q&A, clustering, or richer generated research views are needed after AI summaries and AI-generated tags.
+- Whether local cache files, local SQLite, richer indexing, or vector search are needed after the MVP.
 - Whether Excel becomes a canonical intake/user-registry format or remains compatibility import/export.
 - Deployment, real authentication, and production access control.
-
-## 11. References
-
-- `llm-wiki.md`: project seed document describing the LLM-wiki architecture and operations.
-- LangGraph documentation: recommended reference for stateful agent workflow orchestration, including workflow/agent patterns and persistence concepts.
