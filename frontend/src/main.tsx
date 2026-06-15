@@ -233,7 +233,6 @@ function App() {
               <option value="">All statuses</option>
               <option value="available">Available</option>
               <option value="changed">Changed</option>
-              <option value="skipped_invalid">Invalid</option>
             </select>
             <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} aria-label="Tag filter">
               <option value="">All tags</option>

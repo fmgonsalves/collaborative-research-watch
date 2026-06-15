@@ -286,10 +286,6 @@ td strong,
   background: #fff2cc;
 }
 
-.status.skipped_invalid {
-  background: #f7dddd;
-}
-
 .report-event-lists {
   display: grid;
   gap: 0.75rem;
