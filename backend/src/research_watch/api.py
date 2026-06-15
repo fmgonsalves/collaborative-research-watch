@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import shutil
 from pathlib import Path
 
@@ -7,6 +8,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from .csv_store import append_link, read_users
+from .logging_config import configure_logging
 from .models import (
     BootstrapUserRequest,
     CommentCreateRequest,
@@ -26,6 +28,9 @@ from .models import (
 )
 from .sync import ResearchRepository
 from .workspace import WorkspaceManager
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Collaborative Research Watch")
 app.add_middleware(
@@ -73,7 +78,16 @@ def list_users() -> list[UserRecord]:
 
 @app.post("/api/sync", response_model=SyncReport)
 def sync_workspace() -> SyncReport:
-    return repo().sync()
+    logger.info("POST /api/sync received")
+    report = repo().sync()
+    logger.info(
+        "POST /api/sync completed total=%d created=%d changed=%d removed=%d",
+        report.sources_total,
+        report.created,
+        report.changed,
+        report.removed,
+    )
+    return report
 
 
 @app.get("/api/sources", response_model=list[SourceSummary])
@@ -105,6 +119,8 @@ async def upload_sources(files: list[UploadFile] = File(...)) -> dict[str, objec
         with target.open("wb") as handle:
             shutil.copyfileobj(upload.file, handle)
         saved.append(f"sources/{filename}")
+        logger.info("Uploaded %s (%d bytes)", filename, target.stat().st_size)
+    logger.info("Starting sync after upload of %d file(s)", len(saved))
     report = repo().sync()
     return {"saved": saved, "rejected": rejected, "sync": report.model_dump()}
 
@@ -113,12 +129,14 @@ async def upload_sources(files: list[UploadFile] = File(...)) -> dict[str, objec
 def create_link(request: LinkCreateRequest) -> dict[str, object]:
     root = workspace.require()
     append_link(root / "links.csv", str(request.url), request.title or "")
+    logger.info("Link added url=%s starting sync", request.url)
     report = repo().sync()
     return {"sync": report.model_dump()}
 
 
 @app.post("/api/sources/{source_id}/comments", response_model=CommentRecord)
 def create_comment(source_id: str, request: CommentCreateRequest) -> CommentRecord:
+    logger.info("Comment create on source=%s triggers full sync", source_id)
     return repo().write_comment(source_id, request.user_email, request.body)
 
 
@@ -128,11 +146,13 @@ def update_comment(comment_id: str, request: CommentUpdateRequest) -> CommentRec
     existing = next((comment for comment in comments if comment.comment_id == comment_id), None)
     if existing is None:
         raise HTTPException(status_code=404, detail="Comment not found.")
+    logger.info("Comment update comment=%s triggers full sync", comment_id)
     return repo().write_comment(existing.source_id, request.user_email, request.body, existing_id=comment_id)
 
 
 @app.post("/api/sources/{source_id}/tags", response_model=HumanTagRecord)
 def create_tag(source_id: str, request: TagCreateRequest) -> HumanTagRecord:
+    logger.info("Tag create on source=%s triggers full sync", source_id)
     return repo().write_tag(source_id, request.user_email, request.tag)
 
 
@@ -142,4 +162,5 @@ def update_tag(tag_id: str, request: TagUpdateRequest) -> HumanTagRecord:
     existing = next((tag for tag in tags if tag.tag_id == tag_id), None)
     if existing is None:
         raise HTTPException(status_code=404, detail="Tag not found.")
+    logger.info("Tag update tag=%s triggers full sync", tag_id)
     return repo().write_tag(existing.source_id, request.user_email, request.tag, existing_id=tag_id)

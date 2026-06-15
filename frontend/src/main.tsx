@@ -40,21 +40,37 @@ type TagRecord = {
   updated_at: string;
 };
 type SourceDetail = SourceSummary & {
-  content_hash?: string | null;
   open_url?: string | null;
   open_path?: string | null;
   comments: CommentRecord[];
   tag_records: TagRecord[];
+};
+type SyncSourceEvent = {
+  source_id: string;
+  title: string;
+  type: "document" | "link";
+  relative_path?: string | null;
+  original_url?: string | null;
 };
 type SyncReport = {
   sources_total: number;
   created: number;
   updated: number;
   changed: number;
-  missing: number;
+  removed: number;
+  removed_comments: number;
+  removed_tags: number;
   invalid: number;
+  created_sources: SyncSourceEvent[];
+  changed_sources: SyncSourceEvent[];
+  updated_sources: SyncSourceEvent[];
+  removed_sources: SyncSourceEvent[];
   issues: ValidationIssue[];
 };
+
+function syncEventTarget(event: SyncSourceEvent): string {
+  return event.relative_path || event.original_url || event.title;
+}
 
 const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(path, {
@@ -185,11 +201,13 @@ function App() {
         <UploadPanel
           busy={busy}
           onUploaded={() => refreshSources()}
+          onReport={setReport}
           runAction={runAction}
         />
         <LinkPanel
           busy={busy}
           onCreated={() => refreshSources()}
+          onReport={setReport}
           runAction={runAction}
         />
         <ReportPanel report={report} issues={workspace.issues} message={message} />
@@ -208,7 +226,6 @@ function App() {
               <option value="">All statuses</option>
               <option value="available">Available</option>
               <option value="changed">Changed</option>
-              <option value="missing">Missing</option>
               <option value="skipped_invalid">Invalid</option>
             </select>
             <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} aria-label="Tag filter">
@@ -298,7 +315,17 @@ function UserBootstrap({ workspacePath, onCreated }: { workspacePath: string; on
   );
 }
 
-function UploadPanel({ busy, runAction, onUploaded }: { busy: boolean; runAction: (action: () => Promise<void>, success: string) => Promise<void>; onUploaded: () => Promise<void> }) {
+function UploadPanel({
+  busy,
+  runAction,
+  onUploaded,
+  onReport
+}: {
+  busy: boolean;
+  runAction: (action: () => Promise<void>, success: string) => Promise<void>;
+  onUploaded: () => Promise<void>;
+  onReport: (report: SyncReport) => void;
+}) {
   const [files, setFiles] = useState<FileList | null>(null);
   return (
     <form
@@ -308,7 +335,8 @@ function UploadPanel({ busy, runAction, onUploaded }: { busy: boolean; runAction
         runAction(async () => {
           const formData = new FormData();
           Array.from(files ?? []).forEach((file) => formData.append("files", file));
-          await api("/api/sources/upload", { method: "POST", body: formData });
+          const response = await api<{ sync: SyncReport }>("/api/sources/upload", { method: "POST", body: formData });
+          onReport(response.sync);
           await onUploaded();
         }, "Upload copied into sources and synced.");
       }}
@@ -320,7 +348,17 @@ function UploadPanel({ busy, runAction, onUploaded }: { busy: boolean; runAction
   );
 }
 
-function LinkPanel({ busy, runAction, onCreated }: { busy: boolean; runAction: (action: () => Promise<void>, success: string) => Promise<void>; onCreated: () => Promise<void> }) {
+function LinkPanel({
+  busy,
+  runAction,
+  onCreated,
+  onReport
+}: {
+  busy: boolean;
+  runAction: (action: () => Promise<void>, success: string) => Promise<void>;
+  onCreated: () => Promise<void>;
+  onReport: (report: SyncReport) => void;
+}) {
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
   return (
@@ -329,7 +367,8 @@ function LinkPanel({ busy, runAction, onCreated }: { busy: boolean; runAction: (
       onSubmit={(event) => {
         event.preventDefault();
         runAction(async () => {
-          await api("/api/links", { method: "POST", body: JSON.stringify({ url, title }) });
+          const response = await api<{ sync: SyncReport }>("/api/links", { method: "POST", body: JSON.stringify({ url, title }) });
+          onReport(response.sync);
           setUrl("");
           setTitle("");
           await onCreated();
@@ -344,6 +383,22 @@ function LinkPanel({ busy, runAction, onCreated }: { busy: boolean; runAction: (
   );
 }
 
+function ReportEventList({ title, events }: { title: string; events: SyncSourceEvent[] }) {
+  if (!events.length) return null;
+  return (
+    <div className="report-events">
+      <h3>{title}</h3>
+      <ul>
+        {events.map((event) => (
+          <li key={event.source_id}>
+            <strong>{event.title}</strong> <span className="muted">{syncEventTarget(event)}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function ReportPanel({ report, issues, message }: { report: SyncReport | null; issues: ValidationIssue[]; message: string }) {
   const allIssues = [...(report?.issues || []), ...issues];
   const visibleIssues = allIssues.slice(0, 4);
@@ -353,13 +408,28 @@ function ReportPanel({ report, issues, message }: { report: SyncReport | null; i
     <div className="tool-panel">
       <h2>Sync</h2>
       {report ? (
-        <div className="report-grid">
-          <span>{report.sources_total} sources</span>
-          <span>{report.created} created</span>
-          <span>{report.changed} changed</span>
-          <span>{report.missing} missing</span>
-          <span>{report.invalid} invalid</span>
-        </div>
+        <>
+          <div className="report-grid">
+            <span>{report.sources_total} sources</span>
+            <span>{report.created} created</span>
+            <span>{report.changed} changed</span>
+            <span>{report.updated} updated</span>
+            <span>{report.removed} removed</span>
+            <span>{report.invalid} invalid</span>
+          </div>
+          {(report.removed_comments > 0 || report.removed_tags > 0) && (
+            <p className="muted report-cascade">
+              Cascade: {report.removed_comments} comment{report.removed_comments === 1 ? "" : "s"},{" "}
+              {report.removed_tags} tag{report.removed_tags === 1 ? "" : "s"} removed
+            </p>
+          )}
+          <div className="report-event-lists">
+            <ReportEventList title="Created" events={report.created_sources} />
+            <ReportEventList title="Changed" events={report.changed_sources} />
+            <ReportEventList title="Updated" events={report.updated_sources} />
+            <ReportEventList title="Removed" events={report.removed_sources} />
+          </div>
+        </>
       ) : (
         <p className="muted">Ready</p>
       )}

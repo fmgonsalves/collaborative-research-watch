@@ -286,9 +286,37 @@ td strong,
   background: #fff2cc;
 }
 
-.status.missing,
 .status.skipped_invalid {
   background: #f7dddd;
+}
+
+.report-event-lists {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.report-events h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.report-events ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.report-events li {
+  margin-bottom: 0.2rem;
+  font-size: 0.85rem;
+}
+
+.report-cascade {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
 }
 
 .tag {

@@ -35,7 +35,8 @@ class SourceRecord(BaseModel):
     updated_at: str
     relative_path: str | None = None
     original_url: str | None = None
-    content_hash: str | None = None
+    content_size: int | None = None
+    content_mtime: float | None = None
 
 
 class CommentRecord(BaseModel):
@@ -70,7 +71,6 @@ class SourceSummary(BaseModel):
 
 
 class SourceDetail(SourceSummary):
-    content_hash: str | None = None
     open_url: str | None = None
     open_path: str | None = None
     comments: list[CommentRecord] = Field(default_factory=list)
@@ -85,14 +85,28 @@ class WorkspaceState(BaseModel):
     issues: list[ValidationIssue] = Field(default_factory=list)
 
 
+class SyncSourceEvent(BaseModel):
+    source_id: str
+    title: str
+    type: Literal["document", "link"]
+    relative_path: str | None = None
+    original_url: str | None = None
+
+
 class SyncReport(BaseModel):
     workspace_path: str
     sources_total: int
     created: int = 0
     updated: int = 0
     changed: int = 0
-    missing: int = 0
+    removed: int = 0
+    removed_comments: int = 0
+    removed_tags: int = 0
     invalid: int = 0
+    created_sources: list[SyncSourceEvent] = Field(default_factory=list)
+    changed_sources: list[SyncSourceEvent] = Field(default_factory=list)
+    updated_sources: list[SyncSourceEvent] = Field(default_factory=list)
+    removed_sources: list[SyncSourceEvent] = Field(default_factory=list)
     issues: list[ValidationIssue] = Field(default_factory=list)
 
 

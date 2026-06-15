@@ -194,11 +194,12 @@ Source IDs are app-generated. Users may manually add documents without IDs and m
 
 Matching rules:
 
-- Documents are matched primarily by existing source record and normalized relative location.
-- Content hash is used to detect changed content after a document has been matched.
+- Documents are matched primarily by normalized relative path under `sources/`.
+- File size and modification time are used to detect changed document content after a document has been matched.
 - Links are matched by existing source record or normalized URL.
-- Changed documents keep the same `source_id`, receive an updated content hash, and become changed or stale until reviewed or reprocessed.
-- Removed documents or links are marked missing or removed rather than silently deleted.
+- Changed documents keep the same `source_id` and receive lifecycle status `changed`.
+- Removed documents or links are deleted from app-managed records under `records/` (including associated comments and human-tags), with removal reported in the sync report rather than silently dropped.
+- Renaming or moving a document path is treated as removing the old path and adding a new one; collaboration on the old `source_id` does not transfer.
 - Ambiguous duplicates are reported for human review instead of silently merged.
 
 ### Data Classification
@@ -230,20 +231,16 @@ Users can add sources in two ways:
 - Drop supported documents into `sources/`.
 - Add web links through the UI and/or `links.csv`.
 
-The app provides a manual resync action. Resync scans `sources/`, `links.csv`, `users.csv`, and `records/`; validates rows, files, and frontmatter; assigns missing source IDs; detects changed or removed content; updates lifecycle status; rebuilds in-memory browse/search state; and regenerates `index.md`.
+The app provides a manual resync action. Resync scans `sources/`, `links.csv`, `users.csv`, and `records/`; validates rows, files, and frontmatter; assigns missing source IDs; detects new, changed, and removed intake entries; creates or updates source records; deletes stale app-managed records no longer backed by intake (with collaboration cascade); rebuilds in-memory browse/search state; regenerates `index.md`; and returns a sync report.
 
 Malformed frontmatter, malformed CSV rows, conflicting records, or missing linked files are validated and reported. Valid records continue processing; invalid records are skipped without failing the entire sync.
 
-Supported lifecycle statuses:
+Path 1 lifecycle statuses in active use:
 
-- `pending`: detected but not yet processed.
 - `available`: registered and visible in the app.
-- `changed`: source content changed after registration or processing.
-- `processing`: AI enrichment or extraction is currently running.
-- `processed`: AI enrichment or extraction succeeded.
-- `failed`: extraction, fetch, or processing failed.
-- `missing`: previously registered source is no longer present.
-- `skipped_invalid`: row/source/record could not be processed because of validation errors.
+- `changed`: document content changed after registration (detected via size/mtime).
+
+Later phases may add additional statuses such as `pending`, `processing`, `processed`, `failed`, and `skipped_invalid`. Path 1 does not use a `missing` status; removed intake entries are deleted from app-managed records instead.
 
 Shared intake files should remain clean and minimal. `links.csv` must not be used for comments, human tags, attribution columns, preferences, AI summaries, or AI-generated tags. Document files in `sources/` should remain raw source documents, not app metadata containers.
 
@@ -341,7 +338,8 @@ Represents a document or web link known to the app. Source records are stored un
 | `title` | `source_public` | Safe display title. |
 | `relative_path` | `source_public` or `app_internal` | May be visible if safe; full local paths remain internal. |
 | `original_url` | `source_public` | Source URL for web links. |
-| `content_hash` | `app_internal` | Used for freshness detection. |
+| `content_size` | `app_internal` | Last seen file size in bytes; used for freshness detection. |
+| `content_mtime` | `app_internal` | Last seen file modification time; used for freshness detection. |
 | `date_added` | `source_public` | Safe metadata. |
 | `last_seen_at` | `app_internal` | Operational sync metadata. |
 | `last_processed_at` | `app_internal` | Operational processing metadata. |
@@ -585,7 +583,8 @@ These are recommended defaults for the demo implementation. Later technical desi
 - `index.md` is regenerated and links to relevant source records, original files or URLs, comments, and AI files where available.
 - Browse/search/filter/sort works over registered sources, lifecycle status, human tags, and comments where appropriate.
 - Source detail pages show source metadata, comments, human tags, and open actions.
-- Changed documents keep the same source ID and are marked changed or stale.
+- Changed documents keep the same source ID and are marked changed.
+- Removing a document from `sources/` or a link row from `links.csv` and resyncing removes it from browse/search and deletes its app-managed source record (with associated comments and human-tags reported in the sync report).
 
 ### Path 2 Acceptance
 

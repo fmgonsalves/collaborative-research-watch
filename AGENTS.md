@@ -44,5 +44,6 @@ Unless the user or a later technical design says otherwise:
 
 - Prefer simple filesystem-first behavior that works for a few hundred documents and comments.
 - Prefer deterministic app-owned writes for records and generated catalog files.
+- On resync, user-facing intake (`sources/`, `links.csv`) supersedes stale app-managed records under `records/`.
 - Validate malformed CSV/frontmatter records and report them without breaking the whole workspace.
 - Keep non-technical users in mind: favor readable files, clear errors, and recoverable workflows.

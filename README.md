@@ -27,6 +27,8 @@ bun run dev
 
 Open `http://127.0.0.1:5173/`, enter an absolute workspace path, then create or select a user from that workspace's `users.csv`.
 
+Backend logs print to the terminal where uvicorn is running. Set `RESEARCH_WATCH_LOG_LEVEL=DEBUG` for more verbose sync output.
+
 ## Test
 
 ```bash

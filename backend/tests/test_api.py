@@ -55,7 +55,11 @@ def test_bootstrap_upload_link_sync_and_detail_flow(tmp_path: Path) -> None:
     detail = detail_response.json()
     assert detail["comment_count"] == 1
     assert detail["human_tags"] == ["priority"]
-    assert detail["open_path"].endswith("sources/paper.md")
+    assert detail["open_path"].replace("\\", "/").endswith("sources/paper.md")
+
+    upload_sync = upload_response.json()["sync"]
+    assert "removed" in upload_sync
+    assert upload_sync["removed"] == 0
 
     filtered_response = client.get("/api/sources", params={"search": "Read first", "tag": "priority"})
     assert filtered_response.status_code == 200

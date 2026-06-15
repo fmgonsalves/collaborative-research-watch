@@ -8,7 +8,9 @@ This ledger tracks implementation progress for the Shared Research Collaboration
 - Use a user-entered absolute workspace path as the first app step.
 - Read identity from `users.csv`; if missing, bootstrap it with one `name,email` row.
 - Keep canonical app data in shared files: `sources/`, `links.csv`, `users.csv`, `records/`, and `index.md`.
+- On resync, user-facing intake (`sources/`, `links.csv`) is the source of truth; stale app-managed records under `records/` are removed when intake entries disappear.
 - Support document intake for `.pdf`, `.docx`, `.txt`, `.md`, and `.csv`.
+- On resync, intake files (`sources/`, `links.csv`) supersede stale app records; removed intake entries delete `records/` source files and cascade comments/tags.
 - Keep Path 1 free of AI, extraction, vector stores, authentication, roles, and filesystem watchers.
 
 ## Built Or Changed
@@ -34,7 +36,7 @@ This ledger tracks implementation progress for the Shared Research Collaboration
 
 ## Automated Tests Added And Passing
 
-- Added backend unit tests for workspace initialization, CSV validation, Markdown round trips, resync identity/change/missing behavior, unsupported documents, and separation of comments/tags from links/source records.
+- Added backend unit tests for workspace initialization, CSV validation, Markdown round trips, resync identity/change/removal behavior, unsupported documents, and separation of comments/tags from links/source records.
 - Added backend API test for bootstrap, upload, link creation, browse/search/filter, detail, comments, tags, and generated index behavior.
 - Ran backend tests once: 6 passed, 1 failed because document display titles stayed lowercase.
 - Reran backend tests after the fix: 7 passed, 1 warning from FastAPI/Starlette TestClient dependency behavior.
