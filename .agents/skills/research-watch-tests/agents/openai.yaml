@@ -1,0 +1,4 @@
+interface:
+  display_name: "Research Watch Tests"
+  short_description: "Run this app's backend and frontend checks"
+  default_prompt: "Use $research-watch-tests to run the appropriate checks for this app."

@@ -47,3 +47,7 @@ Unless the user or a later technical design says otherwise:
 - On resync, user-facing intake (`sources/`, `links.csv`) supersedes stale app-managed records under `records/`.
 - Validate malformed CSV/frontmatter records and report them without breaking the whole workspace.
 - Keep non-technical users in mind: favor readable files, clear errors, and recoverable workflows.
+
+## Validation
+
+- Do not perform manual browser verification, browser-driven UI checks, or dev-server/browser verification flows unless the user explicitly approves it for the current task.
