@@ -20,6 +20,7 @@ from .models import (
     SourceSummary,
     SyncReport,
     SyncSourceEvent,
+    TagSuggestion,
     ValidationIssue,
     display_title_for_path,
     utc_now,
@@ -171,6 +172,21 @@ class ResearchRepository:
             except ValidationError as error:
                 issues.append(ValidationIssue(code="invalid_tag_record", message=str(error), path=str(path)))
         return tags, issues
+
+    def list_tag_suggestions(self, q: str = "", limit: int = 50) -> list[TagSuggestion]:
+        tags, _ = self.read_tags()
+        counts: dict[str, int] = defaultdict(int)
+        for tag_record in tags:
+            counts[tag_record.tag] += 1
+        query = q.strip().lower()
+        suggestions = [
+            TagSuggestion(tag=tag, count=count)
+            for tag, count in counts.items()
+            if not query or query in tag.lower()
+        ]
+        suggestions.sort(key=lambda item: item.tag.lower())
+        cap = min(max(limit, 1), 100)
+        return suggestions[:cap]
 
     def sync(self) -> SyncReport:
         sync_started = time.perf_counter()

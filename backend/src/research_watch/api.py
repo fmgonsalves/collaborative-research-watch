@@ -21,6 +21,7 @@ from .models import (
     SourceSummary,
     SyncReport,
     TagCreateRequest,
+    TagSuggestion,
     TagUpdateRequest,
     UserRecord,
     WorkspaceSelectRequest,
@@ -154,6 +155,11 @@ def update_comment(comment_id: str, request: CommentUpdateRequest) -> CommentRec
 def create_tag(source_id: str, request: TagCreateRequest) -> HumanTagRecord:
     logger.info("Tag create on source=%s triggers full sync", source_id)
     return repo().write_tag(source_id, request.user_email, request.tag)
+
+
+@app.get("/api/tags", response_model=list[TagSuggestion])
+def list_tags(q: str = "", limit: int = 50) -> list[TagSuggestion]:
+    return repo().list_tag_suggestions(q=q, limit=limit)
 
 
 @app.put("/api/tags/{tag_id}", response_model=HumanTagRecord)

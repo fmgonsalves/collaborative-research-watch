@@ -144,6 +144,11 @@ class TagUpdateRequest(BaseModel):
     tag: str
 
 
+class TagSuggestion(BaseModel):
+    tag: str
+    count: int
+
+
 def display_title_for_path(path: Path) -> str:
     title = path.stem.replace("_", " ").replace("-", " ").strip()
     return title.title() if title else path.name

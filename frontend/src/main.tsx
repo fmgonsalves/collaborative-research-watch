@@ -1,4 +1,4 @@
-import React, { FormEvent, useEffect, useMemo, useState } from "react";
+import React, { FormEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -39,6 +39,7 @@ type TagRecord = {
   created_at: string;
   updated_at: string;
 };
+type TagSuggestion = { tag: string; count: number };
 type SourceDetail = SourceSummary & {
   open_url?: string | null;
   open_path?: string | null;
@@ -98,9 +99,14 @@ function App() {
   const [report, setReport] = useState<SyncReport | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tagSuggestions, setTagSuggestions] = useState<TagSuggestion[]>([]);
 
   const selectedUserRecord = workspace?.users.find((user) => user.email === selectedUser);
-  const allTags = useMemo(() => Array.from(new Set(sources.flatMap((source) => source.human_tags))).sort(), [sources]);
+
+  const refreshTagSuggestions = async () => {
+    const rows = await api<TagSuggestion[]>("/api/tags");
+    setTagSuggestions(rows);
+  };
 
   const refreshSources = async () => {
     const params = new URLSearchParams();
@@ -126,6 +132,7 @@ function App() {
   useEffect(() => {
     if (workspace?.initialized && workspace.has_users) {
       refreshSources().catch((error) => setMessage(error.message));
+      refreshTagSuggestions().catch(() => undefined);
     }
   }, [workspace?.initialized, workspace?.has_users, search, typeFilter, statusFilter, tagFilter, sort]);
 
@@ -230,9 +237,9 @@ function App() {
             </select>
             <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} aria-label="Tag filter">
               <option value="">All tags</option>
-              {allTags.map((tag) => (
-                <option key={tag} value={tag}>
-                  {tag}
+              {tagSuggestions.map((item) => (
+                <option key={item.tag} value={item.tag}>
+                  {item.tag}
                 </option>
               ))}
             </select>
@@ -248,10 +255,12 @@ function App() {
         <DetailPanel
           detail={detail}
           selectedUser={selectedUserRecord}
+          tagSuggestions={tagSuggestions}
           busy={busy}
           runAction={runAction}
           onChanged={async () => {
             await refreshSources();
+            await refreshTagSuggestions();
             if (selectedSourceId) setDetail(await api<SourceDetail>(`/api/sources/${selectedSourceId}`));
           }}
         />
@@ -484,7 +493,140 @@ function SourceTable({ sources, selectedSourceId, onSelect }: { sources: SourceS
   );
 }
 
-function DetailPanel({ detail, selectedUser, busy, runAction, onChanged }: { detail: SourceDetail | null; selectedUser?: UserRecord; busy: boolean; runAction: (action: () => Promise<void>, success: string) => Promise<void>; onChanged: () => Promise<void> }) {
+function TagCombobox({
+  value,
+  onChange,
+  suggestions,
+  excludeTags,
+  placeholder = "Add tag",
+  disabled = false,
+  id: idProp
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  suggestions: TagSuggestion[];
+  excludeTags: string[];
+  placeholder?: string;
+  disabled?: boolean;
+  id?: string;
+}) {
+  const comboId = useId();
+  const inputId = idProp || comboId;
+  const listboxId = `${inputId}-listbox`;
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const excludeLower = useMemo(() => new Set(excludeTags.map((tag) => tag.toLowerCase())), [excludeTags]);
+
+  const filtered = useMemo(() => {
+    const query = value.trim().toLowerCase();
+    return suggestions
+      .filter((item) => !excludeLower.has(item.tag.toLowerCase()))
+      .filter((item) => !query || item.tag.toLowerCase().includes(query))
+      .slice(0, 50);
+  }, [suggestions, excludeLower, value]);
+
+  useEffect(() => {
+    setActiveIndex(-1);
+  }, [value, filtered.length]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const selectSuggestion = (tag: string) => {
+    onChange(tag);
+    setOpen(false);
+    setActiveIndex(-1);
+  };
+
+  return (
+    <div className="tag-combobox" ref={containerRef}>
+      <input
+        id={inputId}
+        role="combobox"
+        aria-expanded={open && filtered.length > 0}
+        aria-controls={listboxId}
+        aria-autocomplete="list"
+        aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
+        value={value}
+        disabled={disabled}
+        placeholder={placeholder}
+        onChange={(event) => {
+          onChange(event.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            if (!filtered.length) return;
+            event.preventDefault();
+            setOpen(true);
+            setActiveIndex((index) => (index + 1) % filtered.length);
+            return;
+          }
+          if (event.key === "ArrowUp") {
+            if (!filtered.length) return;
+            event.preventDefault();
+            setOpen(true);
+            setActiveIndex((index) => (index <= 0 ? filtered.length - 1 : index - 1));
+            return;
+          }
+          if (event.key === "Enter" && open && activeIndex >= 0) {
+            event.preventDefault();
+            selectSuggestion(filtered[activeIndex].tag);
+            return;
+          }
+          if (event.key === "Escape") {
+            setOpen(false);
+            setActiveIndex(-1);
+          }
+        }}
+      />
+      {open && filtered.length > 0 && (
+        <ul className="tag-combobox-menu" id={listboxId} role="listbox">
+          {filtered.map((item, index) => (
+            <li
+              key={item.tag}
+              id={`${listboxId}-option-${index}`}
+              role="option"
+              aria-selected={index === activeIndex}
+              className={index === activeIndex ? "tag-combobox-option tag-combobox-option--active" : "tag-combobox-option"}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => selectSuggestion(item.tag)}
+            >
+              <span>{item.tag}</span>
+              <span className="tag-combobox-count">({item.count})</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function DetailPanel({
+  detail,
+  selectedUser,
+  tagSuggestions,
+  busy,
+  runAction,
+  onChanged
+}: {
+  detail: SourceDetail | null;
+  selectedUser?: UserRecord;
+  tagSuggestions: TagSuggestion[];
+  busy: boolean;
+  runAction: (action: () => Promise<void>, success: string) => Promise<void>;
+  onChanged: () => Promise<void>;
+}) {
   const [comment, setComment] = useState("");
   const [tag, setTag] = useState("");
   const [editingCommentId, setEditingCommentId] = useState("");
@@ -515,7 +657,13 @@ function DetailPanel({ detail, selectedUser, busy, runAction, onChanged }: { det
             <div className="editable-row" key={record.tag_id}>
               {editingTagId === record.tag_id ? (
                 <>
-                  <input value={editingTagValue} onChange={(event) => setEditingTagValue(event.target.value)} />
+                  <TagCombobox
+                    value={editingTagValue}
+                    onChange={setEditingTagValue}
+                    suggestions={tagSuggestions}
+                    excludeTags={detail.human_tags.filter((item) => item !== record.tag)}
+                    disabled={busy}
+                  />
                   <button
                     disabled={busy || !editingTagValue.trim() || !userEmail}
                     onClick={() =>
@@ -558,7 +706,14 @@ function DetailPanel({ detail, selectedUser, busy, runAction, onChanged }: { det
             }, "Tag saved.");
           }}
         >
-          <input value={tag} onChange={(event) => setTag(event.target.value)} placeholder="Add tag" />
+          <TagCombobox
+            value={tag}
+            onChange={setTag}
+            suggestions={tagSuggestions}
+            excludeTags={detail.human_tags}
+            placeholder="Add tag"
+            disabled={busy || !userEmail}
+          />
           <button disabled={busy || !tag.trim() || !userEmail}>Add</button>
         </form>
       </section>

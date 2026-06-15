@@ -68,3 +68,44 @@ def test_bootstrap_upload_link_sync_and_detail_flow(tmp_path: Path) -> None:
     index_text = (tmp_path / "index.md").read_text(encoding="utf-8")
     assert "Paper" in index_text
     assert "Human-created tags: priority" in index_text
+
+
+def test_list_tags_returns_unique_labels_with_counts(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    client.post("/api/users/bootstrap", json={"name": "Ada", "email": "ada@example.com"})
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    client.post("/api/links", json={"url": "https://example.com/research", "title": "Example"})
+    sources = client.get("/api/sources", params={"sort": "title"}).json()
+    paper = next(source for source in sources if source["type"] == "document")
+    link = next(source for source in sources if source["type"] == "link")
+
+    empty_response = client.get("/api/tags")
+    assert empty_response.status_code == 200
+    assert empty_response.json() == []
+
+    client.post(
+        f"/api/sources/{paper['source_id']}/tags",
+        json={"user_email": "ada@example.com", "tag": "priority"},
+    )
+    client.post(
+        f"/api/sources/{link['source_id']}/tags",
+        json={"user_email": "ada@example.com", "tag": "priority"},
+    )
+    client.post(
+        f"/api/sources/{link['source_id']}/tags",
+        json={"user_email": "ada@example.com", "tag": "review"},
+    )
+
+    tags_response = client.get("/api/tags")
+    assert tags_response.status_code == 200
+    assert tags_response.json() == [
+        {"tag": "priority", "count": 2},
+        {"tag": "review", "count": 1},
+    ]
+
+    filtered_response = client.get("/api/tags", params={"q": "PRI"})
+    assert filtered_response.status_code == 200
+    assert filtered_response.json() == [{"tag": "priority", "count": 2}]
