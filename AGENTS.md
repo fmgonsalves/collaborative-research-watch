@@ -40,6 +40,17 @@ Unless the user or a later technical design says otherwise:
 - Shared records: Markdown with YAML frontmatter, plus CSV for simple intake files.
 - Prefer standard, boring libraries for parsing CSV, YAML frontmatter, Markdown, and documents.
 
+## Python Design Style
+
+- Prefer small, typed, composable functions over monolithic procedures or deeply stateful objects.
+- Prefer pure functions for transformations, validation, normalization, and policy checks. Keep filesystem, network, clock, process, and other side effects at clear edges.
+- Treat functions as first-class building blocks. Pass behavior explicitly when it makes code easier to extend or test.
+- Use explicit typing for public functions, data models, module boundaries, and test helpers. Choose the type tool that fits the problem: Pydantic models, dataclasses, `TypedDict`, `Protocol`, type aliases, or simple callable types.
+- Keep implementation-specific details behind narrow typed functions or interfaces so equivalent implementations can be swapped without rewriting callers.
+- Use `Protocol` or other interface-style typing when there is a real extension boundary; otherwise prefer simple functions and callable type aliases.
+- Avoid speculative frameworks or abstraction layers. Add generic types or abstractions only when they clarify a real contract, protect an expected extension point, or remove meaningful duplication.
+- Keep the style boring and readable. Functional composition is preferred, but not at the cost of obscure indirection.
+
 ## Implementation Style
 
 - Prefer simple filesystem-first behavior that works for a few hundred documents and comments.
