@@ -103,6 +103,10 @@ function App() {
 
   const selectedUserRecord = workspace?.users.find((user) => user.email === selectedUser);
 
+  const applyWorkspaceState = (state: WorkspaceState) => {
+    setWorkspace(state);
+  };
+
   const refreshTagSuggestions = async () => {
     const rows = await api<TagSuggestion[]>("/api/tags");
     setTagSuggestions(rows);
@@ -122,10 +126,7 @@ function App() {
 
   useEffect(() => {
     api<WorkspaceState>("/api/workspace/status")
-      .then((state) => {
-        setWorkspace(state);
-        if (state.users[0]) setSelectedUser(state.users[0].email);
-      })
+      .then(applyWorkspaceState)
       .catch(() => undefined);
   }, []);
 
@@ -158,7 +159,7 @@ function App() {
   };
 
   if (!workspace?.initialized) {
-    return <WorkspaceGate onSelected={(state) => setWorkspace(state)} message={message} setMessage={setMessage} />;
+    return <WorkspaceGate onSelected={applyWorkspaceState} message={message} setMessage={setMessage} />;
   }
 
   if (!workspace.has_users) {
@@ -167,11 +168,14 @@ function App() {
         workspacePath={workspace.path || ""}
         onCreated={async () => {
           const state = await api<WorkspaceState>("/api/workspace/status");
-          setWorkspace(state);
-          if (state.users[0]) setSelectedUser(state.users[0].email);
+          applyWorkspaceState(state);
         }}
       />
     );
+  }
+
+  if (!selectedUserRecord) {
+    return <UserSelection workspacePath={workspace.path || ""} users={workspace.users} onSelected={setSelectedUser} />;
   }
 
   return (
@@ -264,6 +268,32 @@ function App() {
           }}
         />
       </section>
+    </main>
+  );
+}
+
+function UserSelection({ workspacePath, users, onSelected }: { workspacePath: string; users: UserRecord[]; onSelected: (email: string) => void }) {
+  const [email, setEmail] = useState(users[0]?.email || "");
+  return (
+    <main className="gate">
+      <form
+        className="gate-panel"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (email) onSelected(email);
+        }}
+      >
+        <p className="eyebrow">{workspacePath}</p>
+        <h1>Select your user</h1>
+        <select value={email} onChange={(event) => setEmail(event.target.value)} aria-label="Select your user">
+          {users.map((user) => (
+            <option key={user.email} value={user.email}>
+              {user.name} ({user.email})
+            </option>
+          ))}
+        </select>
+        <button disabled={!email}>Continue</button>
+      </form>
     </main>
   );
 }

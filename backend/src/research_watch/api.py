@@ -51,6 +51,20 @@ def repo() -> ResearchRepository:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
+def require_workspace_path() -> Path:
+    try:
+        return workspace.require()
+    except RuntimeError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+def require_source(repository: ResearchRepository, source_id: str) -> SourceDetail:
+    detail = repository.detail(source_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Source not found.")
+    return detail
+
+
 @app.post("/api/workspace/select", response_model=WorkspaceState)
 def select_workspace(request: WorkspaceSelectRequest) -> WorkspaceState:
     return workspace.select(request.path)
@@ -71,7 +85,7 @@ def bootstrap_user(request: BootstrapUserRequest) -> UserRecord:
 
 @app.get("/api/users", response_model=list[UserRecord])
 def list_users() -> list[UserRecord]:
-    users, issues = read_users(workspace.require() / "users.csv")
+    users, issues = read_users(require_workspace_path() / "users.csv")
     if issues:
         raise HTTPException(status_code=400, detail=[issue.model_dump() for issue in issues])
     return users
@@ -98,10 +112,7 @@ def list_sources(search: str = "", type: str = "", status: str = "", tag: str = 
 
 @app.get("/api/sources/{source_id}", response_model=SourceDetail)
 def source_detail(source_id: str) -> SourceDetail:
-    detail = repo().detail(source_id)
-    if detail is None:
-        raise HTTPException(status_code=404, detail="Source not found.")
-    return detail
+    return require_source(repo(), source_id)
 
 
 @app.post("/api/sources/upload")
@@ -128,7 +139,7 @@ async def upload_sources(files: list[UploadFile] = File(...)) -> dict[str, objec
 
 @app.post("/api/links")
 def create_link(request: LinkCreateRequest) -> dict[str, object]:
-    root = workspace.require()
+    root = require_workspace_path()
     append_link(root / "links.csv", str(request.url), request.title or "")
     logger.info("Link added url=%s starting sync", request.url)
     report = repo().sync()
@@ -137,8 +148,10 @@ def create_link(request: LinkCreateRequest) -> dict[str, object]:
 
 @app.post("/api/sources/{source_id}/comments", response_model=CommentRecord)
 def create_comment(source_id: str, request: CommentCreateRequest) -> CommentRecord:
+    repository = repo()
+    require_source(repository, source_id)
     logger.info("Comment create on source=%s triggers full sync", source_id)
-    return repo().write_comment(source_id, request.user_email, request.body)
+    return repository.write_comment(source_id, request.user_email, request.body)
 
 
 @app.put("/api/comments/{comment_id}", response_model=CommentRecord)
@@ -153,8 +166,10 @@ def update_comment(comment_id: str, request: CommentUpdateRequest) -> CommentRec
 
 @app.post("/api/sources/{source_id}/tags", response_model=HumanTagRecord)
 def create_tag(source_id: str, request: TagCreateRequest) -> HumanTagRecord:
+    repository = repo()
+    require_source(repository, source_id)
     logger.info("Tag create on source=%s triggers full sync", source_id)
-    return repo().write_tag(source_id, request.user_email, request.tag)
+    return repository.write_tag(source_id, request.user_email, request.tag)
 
 
 @app.get("/api/tags", response_model=list[TagSuggestion])

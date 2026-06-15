@@ -15,6 +15,11 @@ def client_for(tmp_path: Path) -> TestClient:
     return client
 
 
+def unselected_client() -> TestClient:
+    workspace.current_path = None
+    return TestClient(app)
+
+
 def test_bootstrap_upload_link_sync_and_detail_flow(tmp_path: Path) -> None:
     client = client_for(tmp_path)
 
@@ -109,3 +114,102 @@ def test_list_tags_returns_unique_labels_with_counts(tmp_path: Path) -> None:
     filtered_response = client.get("/api/tags", params={"q": "PRI"})
     assert filtered_response.status_code == 200
     assert filtered_response.json() == [{"tag": "priority", "count": 2}]
+
+
+def test_workspace_required_api_returns_controlled_errors_without_selection() -> None:
+    client = unselected_client()
+
+    responses = [
+        client.get("/api/users"),
+        client.post("/api/sync", json={}),
+        client.get("/api/sources"),
+        client.get("/api/tags"),
+        client.post("/api/links", json={"url": "https://example.com/research", "title": "Example"}),
+    ]
+
+    assert [response.status_code for response in responses] == [400, 400, 400, 400, 400]
+    assert all("Workspace has not been selected." in response.text for response in responses)
+
+
+def test_unknown_source_comment_and_tag_requests_do_not_create_orphans(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    client.post("/api/users/bootstrap", json={"name": "Ada", "email": "ada@example.com"})
+
+    detail_response = client.get("/api/sources/src_missing")
+    assert detail_response.status_code == 404
+
+    comment_response = client.post(
+        "/api/sources/src_missing/comments",
+        json={"user_email": "ada@example.com", "body": "This should not be orphaned."},
+    )
+    assert comment_response.status_code == 404
+
+    tag_response = client.post(
+        "/api/sources/src_missing/tags",
+        json={"user_email": "ada@example.com", "tag": "orphan"},
+    )
+    assert tag_response.status_code == 404
+
+    assert not list((tmp_path / "records" / "comments").glob("comment_*.md"))
+    assert not list((tmp_path / "records" / "human-tags").glob("tag_*.md"))
+
+
+def test_unknown_comment_and_tag_updates_return_404(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+
+    comment_response = client.put(
+        "/api/comments/comment_missing",
+        json={"user_email": "ada@example.com", "body": "Updated."},
+    )
+    assert comment_response.status_code == 404
+
+    tag_response = client.put(
+        "/api/tags/tag_missing",
+        json={"user_email": "ada@example.com", "tag": "updated"},
+    )
+    assert tag_response.status_code == 404
+
+
+def test_invalid_users_csv_is_reported_by_api(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    (tmp_path / "users.csv").write_text("email,name\nada@example.com,Ada\n", encoding="utf-8")
+
+    users_response = client.get("/api/users")
+    assert users_response.status_code == 400
+    assert users_response.json()["detail"][0]["code"] == "invalid_users_header"
+
+    status_response = client.get("/api/workspace/status")
+    assert status_response.status_code == 200
+    status = status_response.json()
+    assert status["has_users"] is False
+    assert status["issues"][0]["code"] == "invalid_users_header"
+
+
+def test_upload_rejects_unsupported_files_without_source_records(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+
+    response = client.post(
+        "/api/sources/upload",
+        files=[
+            ("files", ("paper.md", b"# Paper", "text/markdown")),
+            ("files", ("payload.exe", b"not a supported document", "application/octet-stream")),
+        ],
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["saved"] == ["sources/paper.md"]
+    assert body["rejected"] == ["payload.exe"]
+    assert (tmp_path / "sources" / "paper.md").exists()
+    assert not (tmp_path / "sources" / "payload.exe").exists()
+    assert body["sync"]["sources_total"] == 1
+
+
+def test_invalid_request_payloads_return_validation_errors(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+
+    invalid_link_response = client.post("/api/links", json={"url": "not a url", "title": "Bad"})
+    assert invalid_link_response.status_code == 422
+
+    empty_user_response = client.post("/api/users/bootstrap", json={"name": " ", "email": " "})
+    assert empty_user_response.status_code == 400
