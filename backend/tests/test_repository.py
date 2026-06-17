@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
+from research_watch.ai_store import ai_record_path, read_ai_record, read_ai_records, write_ai_record
 from research_watch.csv_store import append_link, read_links, read_users, write_users
 from research_watch.logging_config import configure_logging
 from research_watch.markdown_store import read_markdown_record, write_markdown_record
-from research_watch.models import UserRecord
+from research_watch.models import AI_RECORD_STATUSES, AIRecord, UserRecord
 from research_watch.sync import ResearchRepository
 from research_watch.workspace import WorkspaceManager
 
@@ -58,6 +62,107 @@ def test_markdown_frontmatter_round_trip(tmp_path: Path) -> None:
     assert frontmatter["source_id"] == "src_123"
     assert frontmatter["title"] == "Example"
     assert body == "# Body\n"
+
+
+def test_ai_record_round_trip_writes_frontmatter_and_summary_body(tmp_path: Path) -> None:
+    record = AIRecord(
+        source_id="src_abc123",
+        status="generated",
+        generated_at="2026-06-15T12:00:00+00:00",
+        source_title="Example Paper",
+        source_type="document",
+        ai_generated_tags=["economics", "methods"],
+        summary="This is an AI-generated summary.",
+        extractor="manual-fixture",
+        model="test-model",
+    )
+
+    write_ai_record(tmp_path, record)
+    read_record, issues = read_ai_record(tmp_path, "src_abc123")
+    frontmatter, body = read_markdown_record(ai_record_path(tmp_path, "src_abc123"))
+
+    assert issues == []
+    assert read_record == record
+    assert body == "This is an AI-generated summary.\n"
+    assert frontmatter["source_id"] == "src_abc123"
+    assert frontmatter["status"] == "generated"
+    assert frontmatter["ai_generated_tags"] == ["economics", "methods"]
+    assert "summary" not in frontmatter
+    assert ai_record_path(tmp_path, "src_abc123") == tmp_path / "records" / "ai" / "src_abc123.md"
+
+
+def test_ai_failure_record_round_trip_allows_empty_body_and_safe_error(tmp_path: Path) -> None:
+    record = AIRecord(
+        source_id="src_abc123",
+        status="extraction_failed",
+        generated_at="2026-06-15T12:00:00+00:00",
+        source_title="Example Paper",
+        source_type="document",
+        ai_generated_tags=[],
+        error_summary="Could not extract readable text.",
+        extractor="pypdf",
+    )
+
+    write_ai_record(tmp_path, record)
+    read_record, issues = read_ai_record(tmp_path, "src_abc123")
+    frontmatter, body = read_markdown_record(ai_record_path(tmp_path, "src_abc123"))
+
+    assert issues == []
+    assert read_record == record
+    assert body == ""
+    assert frontmatter["error_summary"] == "Could not extract readable text."
+    assert frontmatter["extractor"] == "pypdf"
+    assert "model" not in frontmatter
+
+
+def test_ai_record_accepts_documented_status_values() -> None:
+    for status in sorted(AI_RECORD_STATUSES):
+        AIRecord(
+            source_id="src_abc123",
+            status=status,
+            generated_at="2026-06-15T12:00:00+00:00",
+            source_title="Example",
+            source_type="link",
+        )
+
+    with pytest.raises(ValidationError):
+        AIRecord(
+            source_id="src_abc123",
+            status="pending",
+            generated_at="2026-06-15T12:00:00+00:00",
+            source_title="Example",
+            source_type="link",
+        )
+
+
+def test_invalid_ai_record_is_reported_and_skipped(tmp_path: Path) -> None:
+    write_markdown_record(
+        ai_record_path(tmp_path, "src_abc123"),
+        {
+            "source_id": "src_abc123",
+            "status": "not_valid",
+            "generated_at": "2026-06-15T12:00:00+00:00",
+            "source_title": "Example",
+            "source_type": "document",
+        },
+        "Summary",
+    )
+
+    records, issues = read_ai_records(tmp_path)
+    read_record, read_issues = read_ai_record(tmp_path, "src_abc123")
+
+    assert records == []
+    assert [issue.code for issue in issues] == ["invalid_ai_record"]
+    assert issues[0].path == str(ai_record_path(tmp_path, "src_abc123"))
+    assert read_record is None
+    assert [issue.code for issue in read_issues] == ["invalid_ai_record"]
+
+
+def test_missing_ai_record_returns_none_without_issues(tmp_path: Path) -> None:
+    record, issues = read_ai_record(tmp_path, "src_missing")
+
+    assert record is None
+    assert issues == []
 
 
 def test_sync_emits_start_and_finish_logs(tmp_path: Path, capsys) -> None:

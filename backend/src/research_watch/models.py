@@ -8,6 +8,9 @@ from pydantic import BaseModel, Field, HttpUrl
 
 
 SUPPORTED_DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".csv"}
+AI_RECORD_STATUSES = {"generated", "extraction_failed", "fetch_failed", "generation_failed"}
+
+AIRecordStatus = Literal["generated", "extraction_failed", "fetch_failed", "generation_failed"]
 
 
 def utc_now() -> str:
@@ -55,6 +58,19 @@ class HumanTagRecord(BaseModel):
     tag: str
     created_at: str
     updated_at: str
+
+
+class AIRecord(BaseModel):
+    source_id: str
+    status: AIRecordStatus
+    generated_at: str
+    source_title: str
+    source_type: Literal["document", "link"]
+    ai_generated_tags: list[str] = Field(default_factory=list)
+    summary: str = ""
+    error_summary: str | None = None
+    extractor: str | None = None
+    model: str | None = None
 
 
 class SourceSummary(BaseModel):

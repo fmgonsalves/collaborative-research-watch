@@ -62,8 +62,10 @@ Prompt construction must be isolated behind a testable function. Negative tests 
 AI records are app-managed Markdown files under:
 
 ```text
-records/ai/src_<source_id>.md
+records/ai/<source_id>.md
 ```
+
+For example, source `src_abc123` writes to `records/ai/src_abc123.md`.
 
 Each AI record uses YAML frontmatter for machine-readable fields and Markdown body for the summary.
 
@@ -73,12 +75,13 @@ Minimum frontmatter fields:
 source_id: src_...
 status: generated | extraction_failed | fetch_failed | generation_failed
 generated_at: "2026-..."
-model: "..."
 ai_generated_tags:
   - tag
 source_title: "..."
 source_type: document | link
 error_summary: null
+extractor: "..."
+model: "..."
 ```
 
 The Markdown body contains only the AI-generated summary. Failure records may have an empty body and an `error_summary`.
