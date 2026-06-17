@@ -4,6 +4,8 @@
 
 Read `PRD.md` before making product, architecture, storage, or AI workflow changes. Treat it as the source of truth for scope, phases, data ownership, and acceptance criteria.
 
+For implementation-level file format examples and code pointers, see `WORKSPACE_SCHEMA.md`.
+
 This project is a collaboration-first shared research repository. Preserve that center of gravity: users collect documents and links, add team comments and human tags, and browse/search the shared collection. AI is an enrichment layer, not the product's organizing architecture.
 
 ## Architectural Guardrails

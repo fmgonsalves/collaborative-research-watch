@@ -209,7 +209,7 @@ Every product entity and field should be classified with one of these categories
 | Classification | Meaning | Examples |
 | --- | --- | --- |
 | `source_public` | Source content and source metadata that may be used for AI enrichment. | source ID, source type, title, source URL, extracted source content, AI summary, AI-generated tags |
-| `app_internal` | App/backend may use it; model must not see it. | full local path, content hash, parser diagnostics, cache keys, local cache metadata, run internals |
+| `app_internal` | App/backend may use it; model must not see it. | full local path, content size, content modification time, parser diagnostics, cache keys, local cache metadata, run internals |
 | `team_confidential` | Team-visible collaboration data; model must never see it. | user names, user emails, human comments, human-created tags, preferences, attribution |
 
 Important confidentiality rules:
@@ -307,7 +307,7 @@ AI workflows must not receive:
 - Attribution metadata.
 - Preferences.
 - Full local paths.
-- Content hashes.
+- Content size or modification time.
 - Parser diagnostics or internal error details.
 
 ### Optional Later AI Features
@@ -323,74 +323,129 @@ Any later AI-generated feature must preserve the same model boundary:
 
 ## 6. Product-Level Schema
 
-The PRD defines product-level entities and visibility rules. Exact frontmatter fields, API payloads, and local indexing details belong in later technical design.
+This section defines product entities, on-disk file formats, validation rules, and data-classification rules for the shared workspace.
 
-All app-managed Markdown records should use YAML frontmatter for fields the app must parse, followed by a Markdown body for readable human content where useful.
+All app-managed Markdown records use YAML frontmatter between `---` delimiters for fields the app must parse, followed by an optional Markdown body for readable human content where useful. App-written timestamps are UTC ISO-8601 strings with second precision, for example `2026-06-17T14:30:00+00:00`.
 
-### Source
+### File Naming and IDs
 
-Represents a document or web link known to the app. Source records are stored under `records/sources/`.
-
-| Field | Classification | Notes |
+| Entity | ID format | Storage path |
 | --- | --- | --- |
-| `source_id` | `source_public` | App-generated stable ID. |
-| `type` | `source_public` | `document` or `link`. |
-| `title` | `source_public` | Safe display title. |
-| `relative_path` | `source_public` or `app_internal` | May be visible if safe; full local paths remain internal. |
-| `original_url` | `source_public` | Source URL for web links. |
-| `content_size` | `app_internal` | Last seen file size in bytes; used for freshness detection. |
-| `content_mtime` | `app_internal` | Last seen file modification time; used for freshness detection. |
-| `date_added` | `source_public` | Safe metadata. |
-| `last_seen_at` | `app_internal` | Operational sync metadata. |
-| `last_processed_at` | `app_internal` | Operational processing metadata. |
-| `lifecycle_status` | `source_public` | Status shown in UI. |
-| `ai_record_path` | `source_public` | Relative path to the AI Markdown file, when available. |
+| Source | `src_` + 12 lowercase hex characters | `records/sources/<source_id>.md` |
+| Comment | `comment_` + 12 lowercase hex characters | `records/comments/<comment_id>.md` |
+| Human tag | `tag_` + 12 lowercase hex characters | `records/human-tags/<tag_id>.md` |
+| AI output | Same as `source_id` | `records/ai/<source_id>.md` |
+
+Source IDs are assigned during resync. They are not written back into `links.csv`.
+
+### User-Managed Intake
+
+#### `sources/`
+
+- Human-editable document intake only. Do not store comments, tags, or app metadata inside source documents.
+- Supported extensions: `.pdf`, `.docx`, `.txt`, `.md`, `.csv`.
+- Unsupported extensions are reported during resync and do not receive source records.
+- Documents are matched to source records by workspace-relative path (for example `sources/paper.md`).
+- Content changes after registration are detected via `content_size` and `content_mtime` on the source record.
+
+#### `links.csv`
+
+Required header, exact column order:
+
+```csv
+url,title
+```
+
+| Field | Classification | Required | Notes |
+| --- | --- | --- | --- |
+| `url` | `source_public` | Yes | Public or team-approved source URL. |
+| `title` | `source_public` | No | Optional display title. If empty, the normalized URL is used. |
+
+Validation:
+
+- Header must be exactly `url,title`.
+- Each row must have a non-empty `url`.
+- Duplicate normalized URLs in one file are reported and skipped.
+- Do not add source IDs, comments, tags, attribution, preferences, or AI fields.
+
+#### `users.csv`
+
+Required header, exact column order:
+
+```csv
+name,email
+```
+
+| Field | Classification | Required | Notes |
+| --- | --- | --- | --- |
+| `name` | `team_confidential` | Yes | Team-facing display name. |
+| `email` | `team_confidential` | Yes | Unique canonical user key. Stored lowercase. |
+
+Validation:
+
+- Header must be exactly `name,email`.
+- Each row must have non-empty `name` and `email`.
+- Duplicate emails are reported and skipped.
+
+### Source Record
+
+Represents a document or web link known to the app. Stored at `records/sources/<source_id>.md`.
+
+| Field | Classification | Required | Notes |
+| --- | --- | --- | --- |
+| `source_id` | `source_public` | Yes | App-generated stable ID. |
+| `type` | `source_public` | Yes | `document` or `link`. |
+| `title` | `source_public` | Yes | Safe display title. |
+| `lifecycle_status` | `source_public` | Yes | Path 1: `available` or `changed`. |
+| `date_added` | `source_public` | Yes | Safe metadata. |
+| `last_seen_at` | `app_internal` | Yes | Updated each resync when intake entry is present. |
+| `updated_at` | `app_internal` | Yes | Updated on create, resync touch, or metadata change. |
+| `relative_path` | `source_public` | Documents | Workspace-relative path (for example `sources/paper.md`). |
+| `original_url` | `source_public` | Links | Normalized source URL. |
+| `content_size` | `app_internal` | Documents | Last seen file size in bytes; used for freshness detection. |
+| `content_mtime` | `app_internal` | Documents | Last seen file modification time; used for freshness detection. |
+
+The Markdown body is a human-readable summary generated by the app. It is not the operational source of truth.
 
 ### Link Row
 
-Represents a user-editable link input in `links.csv`. Link rows should stay minimal; source IDs and lifecycle state are stored in source records.
-
-| Field | Classification | Notes |
-| --- | --- | --- |
-| `url` | `source_public` | Public or team-approved source URL. |
-| `title` | `source_public` | Optional user-provided title. |
+Represents a user-editable link input in `links.csv`. Link rows stay minimal; source IDs and lifecycle state live in source records. See `links.csv` under User-Managed Intake.
 
 ### User
 
-Represents a human collaborator in `users.csv`.
-
-| Field | Classification | Notes |
-| --- | --- | --- |
-| `name` | `team_confidential` | Team-facing display name. |
-| `email` | `team_confidential` | Unique canonical user key. |
+Represents a human collaborator in `users.csv`. See `users.csv` under User-Managed Intake.
 
 ### Human Comment
 
-Represents a team-visible comment stored under `records/comments/`.
+Represents a team-visible comment stored at `records/comments/<comment_id>.md`.
 
-| Field | Classification | Notes |
-| --- | --- | --- |
-| `comment_id` | `team_confidential` | App-generated comment ID. |
-| `source_id` | `team_confidential` | Association between a team comment and a source. |
-| `user_email` | `team_confidential` | Links to `users.csv`. |
-| `created_at` / `updated_at` | `team_confidential` | Team-facing attribution metadata. |
-| Markdown body | `team_confidential` | Human-authored comment text. |
+| Field | Classification | Required | Notes |
+| --- | --- | --- | --- |
+| `comment_id` | `team_confidential` | Yes | App-generated comment ID. |
+| `source_id` | `team_confidential` | Yes | Association between a team comment and a source. |
+| `user_email` | `team_confidential` | Yes | Links to `users.csv`. |
+| `created_at` | `team_confidential` | Yes | Team-facing attribution metadata. |
+| `updated_at` | `team_confidential` | Yes | Team-facing attribution metadata. |
+| Markdown body | `team_confidential` | Yes | Human-authored comment text. |
 
 ### Human Tag
 
-Represents a team-visible human-created tag assignment stored under `records/human-tags/`.
+Represents a team-visible human-created tag assignment stored at `records/human-tags/<tag_id>.md`.
 
-| Field | Classification | Notes |
-| --- | --- | --- |
-| `tag_id` | `team_confidential` | App-generated tag assignment ID. |
-| `source_id` | `team_confidential` | Association between a human tag and a source. |
-| `user_email` | `team_confidential` | Links to `users.csv`. |
-| `tag` | `team_confidential` | Human-created tag value. |
-| `created_at` / `updated_at` | `team_confidential` | Team-facing attribution metadata. |
+| Field | Classification | Required | Notes |
+| --- | --- | --- | --- |
+| `tag_id` | `team_confidential` | Yes | App-generated tag assignment ID. |
+| `source_id` | `team_confidential` | Yes | Association between a human tag and a source. |
+| `user_email` | `team_confidential` | Yes | Links to `users.csv`. |
+| `tag` | `team_confidential` | Yes | Human-created tag value. |
+| `created_at` | `team_confidential` | Yes | Team-facing attribution metadata. |
+| `updated_at` | `team_confidential` | Yes | Team-facing attribution metadata. |
+
+Human tag files have an empty Markdown body.
 
 ### Extracted Source Content
 
-Represents readable source content prepared by the backend for AI enrichment.
+Represents readable source content prepared by the backend for AI enrichment. May be transient rather than persisted as a separate on-disk record.
 
 | Field | Classification | Notes |
 | --- | --- | --- |
@@ -400,15 +455,19 @@ Represents readable source content prepared by the backend for AI enrichment.
 
 ### AI Output
 
-Represents AI-generated content stored under `records/ai/`.
+Represents AI-generated content stored at `records/ai/<source_id>.md`. The app discovers AI output by that naming convention; source records do not store a separate path field.
 
-| Field | Classification | Notes |
-| --- | --- | --- |
-| `source_id` | `source_public` | Links AI output to source. |
-| `generated_at` | `source_public` | Generation timestamp. |
-| `status` | `source_public` | Generation status. |
-| `ai_generated_tags` | `source_public` | AI-generated tags in YAML frontmatter. |
-| Markdown body | `source_public` | Human-readable AI summary. |
+| Field | Classification | Required | Notes |
+| --- | --- | --- | --- |
+| `source_id` | `source_public` | Yes | Links AI output to source. |
+| `status` | `source_public` | Yes | For example `generated`, `extraction_failed`, `fetch_failed`, `generation_failed`. |
+| `generated_at` | `source_public` | Yes | Generation timestamp. |
+| `model` | `source_public` | Yes | Model identifier used for generation. |
+| `ai_generated_tags` | `source_public` | No | AI-generated tags in YAML frontmatter. |
+| `source_title` | `source_public` | No | Safe source title at generation time. |
+| `source_type` | `source_public` | No | `document` or `link`. |
+| `error_summary` | `source_public` | No | Safe failure summary when generation did not succeed. |
+| Markdown body | `source_public` | No | Human-readable AI summary. May be empty on failure. |
 
 ### AI Run
 
@@ -422,6 +481,22 @@ Represents metadata about an AI enrichment run.
 | `status` | `app_internal` | Run status. |
 | `started_at` / `completed_at` | `app_internal` | Timing metadata. |
 | `error_class` | `app_internal` | Sanitized error classification. |
+
+### Generated Catalog
+
+`index.md` is regenerated by the app after resync and collaboration writes. It is a human-readable catalog, not the operational source of truth. Do not edit it by hand.
+
+Current structure:
+
+- Title and note that the catalog is app-generated.
+- `## Sources` with one section per source, sorted by title.
+- Per source: ID, type, status, source path or URL, human-created tags, and comment count.
+
+### Validation Behavior
+
+- Malformed CSV headers, invalid rows, bad frontmatter, and unsupported documents are reported in the sync validation report.
+- Valid records continue processing; invalid records are skipped without failing the entire sync.
+- Removing a document from `sources/` or a link row from `links.csv` and resyncing deletes the source record and cascades deletion of associated comments and human tags.
 
 ## 7. Workflows
 
@@ -521,7 +596,7 @@ Outputs:
 Allowed data:
 
 - May use source content and safe source metadata.
-- Must not use full local paths, content hashes, parser diagnostics, human comments, human tags, user names, user emails, attribution, or preferences.
+- Must not use full local paths, content size, content modification time, parser diagnostics, human comments, human tags, user names, user emails, attribution, or preferences.
 
 ### Search and Browse Workflow
 
@@ -614,10 +689,8 @@ These are recommended defaults for the demo implementation. Later technical desi
 ## 10. Open Decisions for Later Technical Design
 
 - Exact React app structure and component system.
-- Exact FastAPI route design.
-- Exact CSV column order and validation schema for `links.csv` and `users.csv`.
-- Exact YAML frontmatter fields for source records, comments, human tags, AI outputs, and AI run metadata.
-- Exact source ID, comment ID, and tag ID formats.
+- Exact FastAPI route design and API payload shapes.
+- Exact on-disk storage format for AI run metadata, if persisted outside normal AI records.
 - Exact extraction storage format, if extracted content is persisted outside normal source and AI records.
 - Exact AI workflow implementation, orchestration library, and retry behavior.
 - Whether newsletter preview, Q&A, clustering, or richer generated research views are needed after AI summaries and AI-generated tags.
