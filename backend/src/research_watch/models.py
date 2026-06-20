@@ -78,6 +78,14 @@ class ExtractedSourceText(BaseModel):
     content_text: str
 
 
+class ExtractionResult(BaseModel):
+    source_id: str
+    extracted: ExtractedSourceText | None = None
+    error_summary: str | None = None
+    diagnostics: str | None = None
+    extractor: str = "simple-text"
+
+
 class AISafeSourceInput(BaseModel):
     source_id: str
     source_type: Literal["document", "link"]

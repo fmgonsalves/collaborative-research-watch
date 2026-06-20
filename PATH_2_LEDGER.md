@@ -15,13 +15,14 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Report malformed AI records as validation issues and skip them instead of crashing callers.
 - Build AI-safe model input as a structured typed payload first, not prompt text.
 - Include only the filename basename for document source file metadata in AI-safe input; omit folders and full paths.
+- Extract `.txt`, `.md`, and `.csv` content as raw decoded UTF-8 text in Step 4; do not strip Markdown syntax or reformat CSV rows.
 
 ## Build Steps
 
 - [completed] Step 1: AI record storage.
 - [completed] Step 2: Source detail AI loading.
 - [completed] Step 3: AI-safe input boundary.
-- [pending] Step 4: Simple text extractors.
+- [completed] Step 4: Simple text extractors.
 - [pending] Step 5: PDF extractor.
 - [pending] Step 6: DOCX extractor.
 - [pending] Step 7: Fake enrichment endpoint.
@@ -41,6 +42,9 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added a backend AI-safe input boundary that converts source records plus extracted/fetched text into a typed `source_public` payload.
 - Limited document file metadata in AI-safe input to the filename basename.
 - Kept prompt rendering, model calls, extraction, API routes, and UI behavior out of Step 3.
+- Added backend simple-text extraction for `.txt`, `.md`, and `.csv` using raw decoded text.
+- Added safe extraction failure results for unsupported formats and unreadable/undecodable files.
+- Kept extraction diagnostics separate from extracted text and AI-safe input.
 
 ## Automated Tests Added And Passing
 
@@ -55,19 +59,21 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added backend unit tests proving AI-safe input includes approved document/link fields.
 - Added backend negative tests proving comments, human-created tags, users, emails, selected identity, full paths, folder names, size/mtime, diagnostics, raw errors, cache details, and run internals stay out of serialized AI-safe input.
 - Reran backend tests after Step 3 AI-safe input boundary: 33 passed, 1 warning.
+- Added backend unit tests for `.txt`, `.md`, and `.csv` raw text extraction, unsupported extension failure, bad encoding failure, and extraction-to-AI-safe-input flow.
+- Reran backend tests after Step 4 simple text extractors: 40 passed, 1 warning.
 
 ## Automated Test Scope Remaining
 
-- Extraction tests are deferred to extractor steps.
+- PDF and DOCX extraction tests are deferred to their extractor steps.
 - Enrichment endpoint tests are deferred until fake enrichment endpoint work.
 
 ## Manual/User Test Scope Remaining
 
-- No manual browser verification is needed for Steps 1, 2, or 3 because they are backend-only storage/detail/input-boundary work.
+- No manual browser verification is needed for Steps 1 through 4 because they are backend-only storage/detail/input-boundary/extraction work.
 
 ## Known Gaps, Risks, Follow-Ups
 
 - Source removal does not yet cascade AI records; this is deferred until AI records are integrated into source detail and sync behavior.
 - AI records are exposed through source-detail API responses but not yet through the frontend.
 - User-visible malformed-AI-record diagnostics are deferred until the frontend has an AI section or broader diagnostics surface; Step 2 logs invalid records.
-- No extraction, prompt rendering, or model-provider code exists yet.
+- PDF/DOCX extraction, prompt rendering, and model-provider code do not exist yet.
