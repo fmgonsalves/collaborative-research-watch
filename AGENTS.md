@@ -59,6 +59,18 @@ Unless the user or a later technical design says otherwise:
 - Validate malformed CSV/frontmatter records and report them without breaking the whole workspace.
 - Keep non-technical users in mind: favor readable files, clear errors, and recoverable workflows.
 
+## Schema And Workspace Evolution
+
+- Treat shared workspace files as user-owned data. Before changing any app-managed or user-facing workspace file format, identify whether the change is additive, backward-compatible, or breaking.
+- Prefer additive, backward-compatible changes. Existing workspaces should continue to load without manual edits whenever practical.
+- Preserve canonical user and collaboration data across schema changes, including source intake, users, comments, human-created tags, attribution, and timestamps.
+- Do not silently rewrite, delete, drop, or reinterpret existing collaboration data during schema evolution. This includes comments and human-created tags, not only original source documents.
+- Treat AI-generated summaries, AI-generated tags, and other costly enrichment outputs as rebuildable but still worth preserving across schema changes; do not discard or regenerate them during migration unless the user explicitly approves that behavior.
+- If a breaking workspace change is necessary, get explicit user approval before implementation and include a migration plan.
+- Migration plans should cover old-format fixtures, deterministic upgrade behavior, validation of migrated records, preservation checks for comments and human-created tags, and a recovery or backup story.
+- Code that reads workspace records should tolerate missing new optional fields and malformed individual records without breaking the whole workspace.
+- Record schema/storage evolution decisions, compatibility assumptions, migration requirements, and test results in the relevant project ledger.
+
 ## Validation
 
 - Do not perform manual browser verification, browser-driven UI checks, or dev-server/browser verification flows unless the user explicitly approves it for the current task.

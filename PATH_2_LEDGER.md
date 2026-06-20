@@ -9,7 +9,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Keep AI as bounded per-source enrichment, not a wiki, topic graph, RAG system, or cross-source synthesis layer.
 - Store AI records as app-managed Markdown files with YAML frontmatter under `records/ai/`.
 - Use `{source_id}.md` filenames for AI records, for example `records/ai/src_abc123.md`.
-- Treat AI records as rebuildable enrichment outputs, not canonical human collaboration data.
+- Treat AI records as rebuildable enrichment outputs, not canonical human collaboration data; migrations should preserve existing AI records unless the user explicitly approves discarding or regenerating them.
 - Store the AI summary in the Markdown body, not frontmatter.
 - Keep `extractor` and `model` as optional top-level AI record fields so pre-model failures do not need placeholder model values.
 - Report malformed AI records as validation issues and skip them instead of crashing callers.

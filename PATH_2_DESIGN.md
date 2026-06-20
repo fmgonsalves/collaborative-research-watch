@@ -86,7 +86,7 @@ model: "..."
 
 The Markdown body contains only the AI-generated summary. Failure records may have an empty body and an `error_summary`.
 
-AI records are rebuildable enrichment outputs. They are not canonical human collaboration data.
+AI records are rebuildable enrichment outputs, not canonical human collaboration data. Rebuildable means they can be regenerated on explicit user request; it does not mean schema migrations may discard or silently regenerate existing AI records.
 
 ## Trigger Model
 
