@@ -165,6 +165,37 @@ def test_missing_ai_record_returns_none_without_issues(tmp_path: Path) -> None:
     assert issues == []
 
 
+def test_source_detail_skips_invalid_ai_record_and_logs_warning(tmp_path: Path, capsys) -> None:
+    configure_logging()
+    manager = WorkspaceManager()
+    manager.select(str(tmp_path))
+    (tmp_path / "sources" / "paper.md").write_text("content", encoding="utf-8")
+    repo = ResearchRepository(tmp_path)
+    repo.sync()
+    source = repo.read_source_records()[0][0]
+    capsys.readouterr()
+    write_markdown_record(
+        ai_record_path(tmp_path, source.source_id),
+        {
+            "source_id": source.source_id,
+            "status": "not_valid",
+            "generated_at": "2026-06-15T12:00:00+00:00",
+            "source_title": source.title,
+            "source_type": source.type,
+        },
+        "Summary",
+    )
+
+    detail = repo.detail(source.source_id)
+
+    captured = capsys.readouterr().err
+    assert detail is not None
+    assert detail.ai is None
+    assert "invalid_ai_record" in captured
+    assert source.source_id in captured
+    assert str(ai_record_path(tmp_path, source.source_id)) in captured
+
+
 def test_sync_emits_start_and_finish_logs(tmp_path: Path, capsys) -> None:
     configure_logging()
     manager = WorkspaceManager()

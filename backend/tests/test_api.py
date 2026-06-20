@@ -4,7 +4,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from research_watch.ai_store import write_ai_record
 from research_watch.api import app, workspace
+from research_watch.models import AIRecord
 
 
 def client_for(tmp_path: Path) -> TestClient:
@@ -114,6 +116,98 @@ def test_list_tags_returns_unique_labels_with_counts(tmp_path: Path) -> None:
     filtered_response = client.get("/api/tags", params={"q": "PRI"})
     assert filtered_response.status_code == 200
     assert filtered_response.json() == [{"tag": "priority", "count": 2}]
+
+
+def test_source_detail_includes_ai_record_without_merging_human_tags(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    client.post("/api/users/bootstrap", json={"name": "Ada", "email": "ada@example.com"})
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    source = client.get("/api/sources").json()[0]
+    client.post(
+        f"/api/sources/{source['source_id']}/tags",
+        json={"user_email": "ada@example.com", "tag": "priority"},
+    )
+    write_ai_record(
+        tmp_path,
+        AIRecord(
+            source_id=source["source_id"],
+            status="generated",
+            generated_at="2026-06-15T12:00:00+00:00",
+            source_title=source["title"],
+            source_type="document",
+            ai_generated_tags=["methods", "summary"],
+            summary="AI summary for the paper.",
+            extractor="test-extractor",
+            model="test-model",
+        ),
+    )
+
+    detail_response = client.get(f"/api/sources/{source['source_id']}")
+    summary_response = client.get("/api/sources")
+
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["human_tags"] == ["priority"]
+    assert [record["tag"] for record in detail["tag_records"]] == ["priority"]
+    assert detail["ai"] == {
+        "status": "generated",
+        "generated_at": "2026-06-15T12:00:00+00:00",
+        "ai_generated_tags": ["methods", "summary"],
+        "summary": "AI summary for the paper.",
+        "error_summary": None,
+    }
+    assert "extractor" not in detail["ai"]
+    assert "model" not in detail["ai"]
+    assert "ai" not in summary_response.json()[0]
+
+
+def test_source_detail_includes_ai_failure_status_and_safe_error(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    source = client.get("/api/sources").json()[0]
+    write_ai_record(
+        tmp_path,
+        AIRecord(
+            source_id=source["source_id"],
+            status="extraction_failed",
+            generated_at="2026-06-15T12:00:00+00:00",
+            source_title=source["title"],
+            source_type="document",
+            error_summary="Could not extract readable text.",
+            extractor="test-extractor",
+        ),
+    )
+
+    detail_response = client.get(f"/api/sources/{source['source_id']}")
+
+    assert detail_response.status_code == 200
+    assert detail_response.json()["ai"] == {
+        "status": "extraction_failed",
+        "generated_at": "2026-06-15T12:00:00+00:00",
+        "ai_generated_tags": [],
+        "summary": "",
+        "error_summary": "Could not extract readable text.",
+    }
+
+
+def test_source_detail_returns_null_ai_when_record_is_missing(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    source = client.get("/api/sources").json()[0]
+
+    detail_response = client.get(f"/api/sources/{source['source_id']}")
+
+    assert detail_response.status_code == 200
+    assert detail_response.json()["ai"] is None
 
 
 def test_workspace_required_api_returns_controlled_errors_without_selection() -> None:

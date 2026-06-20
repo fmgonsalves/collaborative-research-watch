@@ -9,6 +9,7 @@ from urllib.parse import urlparse, urlunparse
 
 from pydantic import ValidationError
 
+from .ai_store import read_ai_record
 from .csv_store import read_links, read_users
 from .markdown_store import read_markdown_record, write_markdown_record
 from .models import (
@@ -16,6 +17,7 @@ from .models import (
     HumanTagRecord,
     SUPPORTED_DOCUMENT_EXTENSIONS,
     SourceDetail,
+    SourceAIEnrichment,
     SourceRecord,
     SourceSummary,
     SyncReport,
@@ -435,6 +437,20 @@ class ResearchRepository:
         source_comments = [comment for comment in comments if comment.source_id == source_id_value]
         source_tags = [tag_record for tag_record in tags if tag_record.source_id == source_id_value]
         human_tags = sorted({tag_record.tag for tag_record in source_tags})
+        ai_record, ai_issues = read_ai_record(self.root, source_id_value)
+        for issue in ai_issues:
+            logger.warning("invalid_ai_record source_id=%s path=%s message=%s", source_id_value, issue.path, issue.message)
+        ai = (
+            SourceAIEnrichment(
+                status=ai_record.status,
+                generated_at=ai_record.generated_at,
+                ai_generated_tags=ai_record.ai_generated_tags,
+                summary=ai_record.summary,
+                error_summary=ai_record.error_summary,
+            )
+            if ai_record is not None
+            else None
+        )
         open_path = str(self.root / record.relative_path) if record.relative_path else None
         return SourceDetail(
             source_id=record.source_id,
@@ -451,6 +467,7 @@ class ResearchRepository:
             open_path=open_path,
             comments=source_comments,
             tag_records=source_tags,
+            ai=ai,
         )
 
     def write_comment(self, source_id_value: str, user_email: str, body: str, existing_id: str | None = None) -> CommentRecord:

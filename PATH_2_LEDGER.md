@@ -13,12 +13,14 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Store the AI summary in the Markdown body, not frontmatter.
 - Keep `extractor` and `model` as optional top-level AI record fields so pre-model failures do not need placeholder model values.
 - Report malformed AI records as validation issues and skip them instead of crashing callers.
+- Build AI-safe model input as a structured typed payload first, not prompt text.
+- Include only the filename basename for document source file metadata in AI-safe input; omit folders and full paths.
 
 ## Build Steps
 
-- [active] Step 1: AI record storage.
-- [pending] Step 2: Source detail AI loading.
-- [pending] Step 3: AI-safe input boundary.
+- [completed] Step 1: AI record storage.
+- [completed] Step 2: Source detail AI loading.
+- [completed] Step 3: AI-safe input boundary.
 - [pending] Step 4: Simple text extractors.
 - [pending] Step 5: PDF extractor.
 - [pending] Step 6: DOCX extractor.
@@ -33,6 +35,12 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added typed AI record storage models for Path 2 Step 1.
 - Added backend AI record read/write helpers for `records/ai/{source_id}.md`.
 - Updated the Path 2 design filename example to use `{source_id}.md` instead of a double-prefixed path.
+- Added backend source-detail loading for existing AI records through a nested `ai` response object.
+- Kept AI-generated tags separate from `human_tags` and human tag records in source detail.
+- Log malformed source-specific AI records as `invalid_ai_record` warnings while keeping source detail usable with `ai: null`.
+- Added a backend AI-safe input boundary that converts source records plus extracted/fetched text into a typed `source_public` payload.
+- Limited document file metadata in AI-safe input to the filename basename.
+- Kept prompt rendering, model calls, extraction, API routes, and UI behavior out of Step 3.
 
 ## Automated Tests Added And Passing
 
@@ -41,20 +49,25 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added backend unit tests for invalid AI record validation issues.
 - Added backend unit test proving missing AI records return no record and no issues.
 - Reran backend tests after Step 1 storage work: 24 passed, 1 warning.
+- Added backend API tests for generated AI detail, failed AI detail, missing AI detail, and human/AI tag separation.
+- Added backend repository test proving malformed AI detail records are skipped and logged without crashing source detail.
+- Reran backend tests after Step 2 source-detail loading: 28 passed, 1 warning.
+- Added backend unit tests proving AI-safe input includes approved document/link fields.
+- Added backend negative tests proving comments, human-created tags, users, emails, selected identity, full paths, folder names, size/mtime, diagnostics, raw errors, cache details, and run internals stay out of serialized AI-safe input.
+- Reran backend tests after Step 3 AI-safe input boundary: 33 passed, 1 warning.
 
 ## Automated Test Scope Remaining
 
-- Source detail API tests for loading AI records are deferred to Step 2.
-- AI-safe input negative tests are deferred to Step 3.
 - Extraction tests are deferred to extractor steps.
 - Enrichment endpoint tests are deferred until fake enrichment endpoint work.
 
 ## Manual/User Test Scope Remaining
 
-- No manual browser verification is needed for Step 1 because it is backend storage only.
+- No manual browser verification is needed for Steps 1, 2, or 3 because they are backend-only storage/detail/input-boundary work.
 
 ## Known Gaps, Risks, Follow-Ups
 
 - Source removal does not yet cascade AI records; this is deferred until AI records are integrated into source detail and sync behavior.
-- AI records are not yet exposed through API responses or the frontend.
-- No extraction, prompt construction, or model-provider code exists yet.
+- AI records are exposed through source-detail API responses but not yet through the frontend.
+- User-visible malformed-AI-record diagnostics are deferred until the frontend has an AI section or broader diagnostics surface; Step 2 logs invalid records.
+- No extraction, prompt rendering, or model-provider code exists yet.

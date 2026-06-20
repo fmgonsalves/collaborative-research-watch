@@ -73,6 +73,20 @@ class AIRecord(BaseModel):
     model: str | None = None
 
 
+class ExtractedSourceText(BaseModel):
+    source_id: str
+    content_text: str
+
+
+class AISafeSourceInput(BaseModel):
+    source_id: str
+    source_type: Literal["document", "link"]
+    title: str
+    content_text: str
+    original_url: str | None = None
+    filename: str | None = None
+
+
 class SourceSummary(BaseModel):
     source_id: str
     type: str
@@ -86,11 +100,20 @@ class SourceSummary(BaseModel):
     comment_count: int = 0
 
 
+class SourceAIEnrichment(BaseModel):
+    status: AIRecordStatus
+    generated_at: str
+    ai_generated_tags: list[str] = Field(default_factory=list)
+    summary: str = ""
+    error_summary: str | None = None
+
+
 class SourceDetail(SourceSummary):
     open_url: str | None = None
     open_path: str | None = None
     comments: list[CommentRecord] = Field(default_factory=list)
     tag_records: list[HumanTagRecord] = Field(default_factory=list)
+    ai: SourceAIEnrichment | None = None
 
 
 class WorkspaceState(BaseModel):
