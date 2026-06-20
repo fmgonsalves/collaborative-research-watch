@@ -78,23 +78,9 @@ Done when:
 
 - PDF sources can produce safe extracted text or a safe extraction failure.
 
-## 6. DOCX Extractor
+## 6. Fake Enrichment Endpoint
 
-Implement DOCX extraction with `python-docx`.
-
-Tests:
-
-- Extracts paragraph text from a fixture DOCX.
-- Handles empty or malformed DOCX files safely.
-- Internal diagnostics stay out of AI-safe input.
-
-Done when:
-
-- DOCX sources can produce safe extracted text or a safe extraction failure.
-
-## 7. Fake Enrichment Endpoint
-
-Add the enrichment API without calling a real model. Use a deterministic fake generator to prove API, storage, and failure behavior.
+Add the document enrichment API without calling a real model. Use a deterministic fake generator to prove API, storage, and failure behavior for supported local documents.
 
 Endpoint:
 
@@ -103,16 +89,19 @@ Endpoint:
 Tests:
 
 - Unknown source returns `404`.
-- Valid source writes an AI record.
+- Link source returns `409` and does not write an AI record until link fetching exists.
+- Valid document source writes a generated AI record.
 - Extraction failure writes a failure AI record.
+- Unsafe or missing document paths fail safely without exposing full local paths.
+- Human comments, human tags, user names, and user emails do not appear in the generated AI record.
 - Manual sync does not call enrichment.
 - Existing Path 1 tests continue passing.
 
 Done when:
 
-- The app can manually enrich one source end-to-end using deterministic fake output.
+- The app can manually enrich one supported document source end-to-end using deterministic fake output.
 
-## 8. Source Detail UI
+## 7. Source Detail UI
 
 Display AI enrichment on source detail.
 
@@ -131,7 +120,7 @@ Done when:
 
 - Users can distinguish human collaboration data from AI-generated enrichment.
 
-## 9. Real Model Adapter
+## 8. Real Model Adapter
 
 Add the real model call behind the same generation boundary used by the fake generator.
 
@@ -146,7 +135,7 @@ Done when:
 
 - One-source manual enrichment can call the configured model and write a valid AI record.
 
-## 10. Browse/Search/Filter Over AI Fields
+## 9. Browse/Search/Filter Over AI Fields
 
 Add AI fields to browse/search/filter only after AI record read/write/display is stable.
 
@@ -160,9 +149,39 @@ Done when:
 
 - AI-generated metadata improves discovery without merging with human collaboration data.
 
+## 10. DOCX Extractor
+
+Implement DOCX extraction with `python-docx` after the first end-to-end enrichment pass is proven.
+
+Tests:
+
+- Extracts paragraph text from a fixture DOCX.
+- Handles empty or malformed DOCX files safely.
+- Internal diagnostics stay out of AI-safe input.
+
+Done when:
+
+- DOCX sources can produce safe extracted text or a safe extraction failure.
+
+## 11. Link Fetching And HTML Extraction
+
+Fetch readable text for public web link sources with a conservative first pass after the first document-based enrichment pass is proven.
+
+Tests:
+
+- Fetches a simple HTML page with timeout and extracts readable text.
+- Treats non-HTML responses as safe fetch failures.
+- Treats blocked, inaccessible, or failed requests as safe fetch failures.
+- Internal HTTP/parser diagnostics stay out of AI-safe input.
+
+Done when:
+
+- Link sources can produce safe fetched text or a safe fetch failure.
+
 ## Ordering Notes
 
 - Do not build all extractors before proving AI record storage and data-boundary tests.
 - Do not add real model calls before the fake enrichment endpoint works.
 - Do not let manual sync call enrichment in Path 2 v1.
-- PDF comes before DOCX by default because the initial extraction-tool discussion centered on PDF. Swap these two only if real workspace priorities make DOCX more urgent.
+- DOCX extraction is intentionally deferred until after the first end-to-end enrichment pass is proven.
+- Link fetching is intentionally deferred until after the first document-based enrichment pass is proven.

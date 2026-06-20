@@ -18,6 +18,7 @@ from .models import (
     LinkCreateRequest,
     SUPPORTED_DOCUMENT_EXTENSIONS,
     SourceDetail,
+    SourceAIEnrichment,
     SourceSummary,
     SyncReport,
     TagCreateRequest,
@@ -113,6 +114,17 @@ def list_sources(search: str = "", type: str = "", status: str = "", tag: str = 
 @app.get("/api/sources/{source_id}", response_model=SourceDetail)
 def source_detail(source_id: str) -> SourceDetail:
     return require_source(repo(), source_id)
+
+
+@app.post("/api/sources/{source_id}/ai/enrich", response_model=SourceAIEnrichment)
+def enrich_source(source_id: str) -> SourceAIEnrichment:
+    repository = repo()
+    source = repository.source_record(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail="Source not found.")
+    if source.type == "link":
+        raise HTTPException(status_code=409, detail="Link enrichment is not available until link fetching is implemented.")
+    return repository.enrich_document_source(source)
 
 
 @app.post("/api/sources/upload")

@@ -17,6 +17,8 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Include only the filename basename for document source file metadata in AI-safe input; omit folders and full paths.
 - Extract `.txt`, `.md`, and `.csv` content as raw decoded UTF-8 text in Step 4; do not strip Markdown syntax or reformat CSV rows.
 - Extract PDF text with `pypdf` first; for PDFs longer than 50 pages, inspect only the first 50 pages instead of failing the whole extraction.
+- Treat the first enrichment pass as document-based only; link enrichment returns `409` and writes no AI record until link fetching and HTML extraction exist.
+- Use a deterministic local fake generator for Step 6 so API, extraction, AI-safe input, and AI record writing can be proven before model-provider work.
 
 ## Build Steps
 
@@ -25,11 +27,12 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - [completed] Step 3: AI-safe input boundary.
 - [completed] Step 4: Simple text extractors.
 - [completed] Step 5: PDF extractor.
-- [pending] Step 6: DOCX extractor.
-- [pending] Step 7: Fake enrichment endpoint.
-- [pending] Step 8: Source detail UI.
-- [pending] Step 9: Real model adapter.
-- [pending] Step 10: Browse/search/filter over AI fields.
+- [completed] Step 6: Fake enrichment endpoint.
+- [pending] Step 7: Source detail UI.
+- [pending] Step 8: Real model adapter.
+- [pending] Step 9: Browse/search/filter over AI fields.
+- [pending] Step 10: DOCX extractor.
+- [pending] Step 11: Link fetching and HTML extraction.
 
 ## Built Or Changed
 
@@ -50,6 +53,10 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Limited PDF extraction to the first 50 pages while still treating readable long PDFs as successful bounded extractions.
 - Added safe PDF failures for malformed PDFs and PDFs with no readable text in the inspected pages.
 - Added `backend/scripts/smoke_pdf_extract.py` for optional developer smoke testing of real PDF extraction with `uv run scripts/smoke_pdf_extract.py /path/to/file.pdf`.
+- Added `POST /api/sources/{source_id}/ai/enrich` for manual document enrichment with deterministic fake output.
+- Added safe `409` rejection for link enrichment until link fetching is implemented.
+- Added safe extraction-failure AI record writing for missing, unsafe, unreadable, or unsupported document extraction cases.
+- Kept manual sync separate from enrichment; sync does not create or update AI records.
 
 ## Automated Tests Added And Passing
 
@@ -69,19 +76,25 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added backend unit tests for PDF text extraction, first-50-pages extraction, no-text PDF failure, malformed PDF failure, and PDF diagnostics isolation.
 - Reran targeted extractor tests after Step 5 PDF extraction: 12 passed.
 - Reran backend tests after Step 5 PDF extraction: 45 passed, 1 warning.
+- Added backend API tests for unknown-source enrichment, link `409` behavior, generated fake AI records, source-detail loading after enrichment, safe extraction failures, path-safety failures, confidentiality exclusions, and manual-sync non-enrichment.
+- Reran targeted API tests after Step 6 fake enrichment endpoint: 18 passed, 1 warning.
+- Reran backend tests after Step 6 fake enrichment endpoint: 52 passed, 1 warning.
 
 ## Automated Test Scope Remaining
 
-- DOCX extraction tests are deferred to the DOCX extractor step.
-- Enrichment endpoint tests are deferred until fake enrichment endpoint work.
+- DOCX extraction tests are deferred until after the first end-to-end enrichment pass is proven.
+- Link fetching and HTML extraction tests are deferred until after the first document-based enrichment pass is proven.
+- Source detail UI tests are deferred until frontend display work.
 
 ## Manual/User Test Scope Remaining
 
-- No manual browser verification is needed for Steps 1 through 5 because they are backend-only storage/detail/input-boundary/extraction work.
+- No manual browser verification is needed for Steps 1 through 6 because they are backend-only storage/detail/input-boundary/extraction/enrichment API work.
 
 ## Known Gaps, Risks, Follow-Ups
 
 - Source removal does not yet cascade AI records; this is deferred until AI records are integrated into source detail and sync behavior.
 - AI records are exposed through source-detail API responses but not yet through the frontend.
 - User-visible malformed-AI-record diagnostics are deferred until the frontend has an AI section or broader diagnostics surface; Step 2 logs invalid records.
-- DOCX extraction, prompt rendering, and model-provider code do not exist yet.
+- DOCX extraction is intentionally deferred until after the first end-to-end enrichment pass.
+- Link fetching and HTML extraction are intentionally deferred until after the first document-based enrichment pass; link enrichment returns `409` in the meantime.
+- Prompt rendering and model-provider code do not exist yet.

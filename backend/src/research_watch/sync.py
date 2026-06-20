@@ -9,10 +9,14 @@ from urllib.parse import urlparse, urlunparse
 
 from pydantic import ValidationError
 
-from .ai_store import read_ai_record
+from .ai_input import build_ai_safe_source_input
+from .ai_store import read_ai_record, write_ai_record
 from .csv_store import read_links, read_users
+from .extractors import extract_document_text
+from .fake_ai import FAKE_MODEL_NAME, fake_summary, fake_tags
 from .markdown_store import read_markdown_record, write_markdown_record
 from .models import (
+    AIRecord,
     CommentRecord,
     HumanTagRecord,
     SUPPORTED_DOCUMENT_EXTENSIONS,
@@ -84,6 +88,16 @@ def sync_source_event(record: SourceRecord) -> SyncSourceEvent:
     )
 
 
+def source_ai_enrichment(record: AIRecord) -> SourceAIEnrichment:
+    return SourceAIEnrichment(
+        status=record.status,
+        generated_at=record.generated_at,
+        ai_generated_tags=record.ai_generated_tags,
+        summary=record.summary,
+        error_summary=record.error_summary,
+    )
+
+
 class ResearchRepository:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -132,6 +146,10 @@ class ResearchRepository:
             record.model_dump(exclude_none=True),
             "\n".join(body_lines),
         )
+
+    def source_record(self, source_id_value: str) -> SourceRecord | None:
+        records, _ = self.read_source_records()
+        return next((item for item in records if item.source_id == source_id_value), None)
 
     def delete_source_record(self, record: SourceRecord) -> None:
         path = self.source_records_dir / f"{record.source_id}.md"
@@ -428,8 +446,7 @@ class ResearchRepository:
         return sorted(rows, key=key_map.get(sort, key_map["title"]), reverse=reverse)
 
     def detail(self, source_id_value: str) -> SourceDetail | None:
-        records, _ = self.read_source_records()
-        record = next((item for item in records if item.source_id == source_id_value), None)
+        record = self.source_record(source_id_value)
         if record is None:
             return None
         comments, _ = self.read_comments()
@@ -440,17 +457,7 @@ class ResearchRepository:
         ai_record, ai_issues = read_ai_record(self.root, source_id_value)
         for issue in ai_issues:
             logger.warning("invalid_ai_record source_id=%s path=%s message=%s", source_id_value, issue.path, issue.message)
-        ai = (
-            SourceAIEnrichment(
-                status=ai_record.status,
-                generated_at=ai_record.generated_at,
-                ai_generated_tags=ai_record.ai_generated_tags,
-                summary=ai_record.summary,
-                error_summary=ai_record.error_summary,
-            )
-            if ai_record is not None
-            else None
-        )
+        ai = source_ai_enrichment(ai_record) if ai_record is not None else None
         open_path = str(self.root / record.relative_path) if record.relative_path else None
         return SourceDetail(
             source_id=record.source_id,
@@ -469,6 +476,60 @@ class ResearchRepository:
             tag_records=source_tags,
             ai=ai,
         )
+
+    def source_document_path_for_enrichment(self, record: SourceRecord) -> Path | None:
+        if record.type != "document" or not record.relative_path:
+            return None
+        source_path = (self.root / record.relative_path).resolve(strict=False)
+        sources_root = self.sources_dir.resolve(strict=False)
+        if not source_path.is_relative_to(sources_root) or not source_path.is_file():
+            return None
+        return source_path
+
+    def enrich_document_source(self, record: SourceRecord) -> SourceAIEnrichment:
+        now = utc_now()
+        path = self.source_document_path_for_enrichment(record)
+        if path is None:
+            ai_record = AIRecord(
+                source_id=record.source_id,
+                status="extraction_failed",
+                generated_at=now,
+                source_title=record.title,
+                source_type=record.type,
+                error_summary="Source file is not available for extraction.",
+                extractor="document",
+            )
+            write_ai_record(self.root, ai_record)
+            return source_ai_enrichment(ai_record)
+
+        extraction = extract_document_text(record, path)
+        if extraction.extracted is None:
+            ai_record = AIRecord(
+                source_id=record.source_id,
+                status="extraction_failed",
+                generated_at=now,
+                source_title=record.title,
+                source_type=record.type,
+                error_summary=extraction.error_summary or "Could not extract readable text.",
+                extractor=extraction.extractor,
+            )
+            write_ai_record(self.root, ai_record)
+            return source_ai_enrichment(ai_record)
+
+        source_input = build_ai_safe_source_input(record, extraction.extracted)
+        ai_record = AIRecord(
+            source_id=record.source_id,
+            status="generated",
+            generated_at=now,
+            source_title=record.title,
+            source_type=record.type,
+            ai_generated_tags=fake_tags(source_input),
+            summary=fake_summary(source_input),
+            extractor=extraction.extractor,
+            model=FAKE_MODEL_NAME,
+        )
+        write_ai_record(self.root, ai_record)
+        return source_ai_enrichment(ai_record)
 
     def write_comment(self, source_id_value: str, user_email: str, body: str, existing_id: str | None = None) -> CommentRecord:
         now = utc_now()

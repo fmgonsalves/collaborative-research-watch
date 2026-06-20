@@ -4,8 +4,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from research_watch.ai_store import write_ai_record
+from research_watch.ai_store import ai_record_path, read_ai_record, write_ai_record
 from research_watch.api import app, workspace
+from research_watch.markdown_store import read_markdown_record, write_markdown_record
 from research_watch.models import AIRecord
 
 
@@ -307,3 +308,141 @@ def test_invalid_request_payloads_return_validation_errors(tmp_path: Path) -> No
 
     empty_user_response = client.post("/api/users/bootstrap", json={"name": " ", "email": " "})
     assert empty_user_response.status_code == 400
+
+
+def test_enrich_unknown_source_returns_404(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+
+    response = client.post("/api/sources/src_missing/ai/enrich")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Source not found."
+
+
+def test_enrich_link_source_returns_409_without_writing_ai_record(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    link_response = client.post("/api/links", json={"url": "https://example.com/research", "title": "Example"})
+    assert link_response.status_code == 200
+    source = client.get("/api/sources").json()[0]
+
+    response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Link enrichment is not available until link fetching is implemented."
+    assert not ai_record_path(tmp_path, source["source_id"]).exists()
+
+
+def test_enrich_document_source_writes_generated_ai_record_and_detail_loads_it(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    upload_response = client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper\nSource text.", "text/markdown")},
+    )
+    assert upload_response.status_code == 200
+    source = client.get("/api/sources").json()[0]
+
+    response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+    detail_response = client.get(f"/api/sources/{source['source_id']}")
+    ai_record, issues = read_ai_record(tmp_path, source["source_id"])
+
+    assert response.status_code == 200
+    assert issues == []
+    assert ai_record is not None
+    assert ai_record.status == "generated"
+    assert ai_record.ai_generated_tags == ["ai-test", "document"]
+    assert ai_record.summary == f"Fake summary for {source['title']}. Extracted 20 characters for Path 2 validation."
+    assert ai_record.extractor == "simple-text"
+    assert ai_record.model == "fake-local-generator"
+    assert detail_response.json()["ai"] == response.json()
+
+
+def test_enrich_document_extraction_failure_writes_safe_failure_record(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    upload_response = client.post(
+        "/api/sources/upload",
+        files={"files": ("notes.txt", b"\xff", "text/plain")},
+    )
+    assert upload_response.status_code == 200
+    source = client.get("/api/sources").json()[0]
+
+    response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+    ai_record, issues = read_ai_record(tmp_path, source["source_id"])
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "extraction_failed"
+    assert response.json()["error_summary"] == "Could not decode source text as UTF-8."
+    assert issues == []
+    assert ai_record is not None
+    assert ai_record.summary == ""
+    assert ai_record.error_summary == "Could not decode source text as UTF-8."
+    assert "UnicodeDecodeError" not in ai_record.model_dump_json()
+
+
+def test_enrich_document_with_unsafe_or_missing_path_fails_without_exposing_local_path(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    upload_response = client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    assert upload_response.status_code == 200
+    source = client.get("/api/sources").json()[0]
+    record_path = tmp_path / "records" / "sources" / f"{source['source_id']}.md"
+    frontmatter, body = read_markdown_record(record_path)
+    frontmatter["relative_path"] = "../outside.md"
+    write_markdown_record(record_path, frontmatter, body)
+
+    response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+    ai_record, issues = read_ai_record(tmp_path, source["source_id"])
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "extraction_failed"
+    assert response.json()["error_summary"] == "Source file is not available for extraction."
+    assert issues == []
+    assert ai_record is not None
+    serialized = ai_record.model_dump_json()
+    assert str(tmp_path) not in serialized
+    assert "outside.md" not in serialized
+
+
+def test_enrich_document_does_not_include_human_collaboration_data(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    client.post("/api/users/bootstrap", json={"name": "Ada Confidential", "email": "ada.secret@example.com"})
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper\nOnly source content.", "text/markdown")},
+    )
+    source = client.get("/api/sources").json()[0]
+    client.post(
+        f"/api/sources/{source['source_id']}/comments",
+        json={"user_email": "ada.secret@example.com", "body": "Do not send this human note."},
+    )
+    client.post(
+        f"/api/sources/{source['source_id']}/tags",
+        json={"user_email": "ada.secret@example.com", "tag": "human-secret-tag"},
+    )
+
+    response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+    ai_record, _ = read_ai_record(tmp_path, source["source_id"])
+
+    assert response.status_code == 200
+    assert ai_record is not None
+    serialized = ai_record.model_dump_json()
+    assert "Do not send this human note" not in serialized
+    assert "human-secret-tag" not in serialized
+    assert "Ada Confidential" not in serialized
+    assert "ada.secret@example.com" not in serialized
+
+
+def test_manual_sync_does_not_create_ai_records(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    upload_response = client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    assert upload_response.status_code == 200
+    source = client.get("/api/sources").json()[0]
+
+    sync_response = client.post("/api/sync")
+
+    assert sync_response.status_code == 200
+    assert not ai_record_path(tmp_path, source["source_id"]).exists()
