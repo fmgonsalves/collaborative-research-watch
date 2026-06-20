@@ -16,6 +16,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Build AI-safe model input as a structured typed payload first, not prompt text.
 - Include only the filename basename for document source file metadata in AI-safe input; omit folders and full paths.
 - Extract `.txt`, `.md`, and `.csv` content as raw decoded UTF-8 text in Step 4; do not strip Markdown syntax or reformat CSV rows.
+- Extract PDF text with `pypdf` first; for PDFs longer than 50 pages, inspect only the first 50 pages instead of failing the whole extraction.
 
 ## Build Steps
 
@@ -23,7 +24,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - [completed] Step 2: Source detail AI loading.
 - [completed] Step 3: AI-safe input boundary.
 - [completed] Step 4: Simple text extractors.
-- [pending] Step 5: PDF extractor.
+- [completed] Step 5: PDF extractor.
 - [pending] Step 6: DOCX extractor.
 - [pending] Step 7: Fake enrichment endpoint.
 - [pending] Step 8: Source detail UI.
@@ -45,6 +46,10 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added backend simple-text extraction for `.txt`, `.md`, and `.csv` using raw decoded text.
 - Added safe extraction failure results for unsupported formats and unreadable/undecodable files.
 - Kept extraction diagnostics separate from extracted text and AI-safe input.
+- Added backend PDF extraction through the same extraction boundary using `pypdf`.
+- Limited PDF extraction to the first 50 pages while still treating readable long PDFs as successful bounded extractions.
+- Added safe PDF failures for malformed PDFs and PDFs with no readable text in the inspected pages.
+- Added `backend/scripts/smoke_pdf_extract.py` for optional developer smoke testing of real PDF extraction with `uv run scripts/smoke_pdf_extract.py /path/to/file.pdf`.
 
 ## Automated Tests Added And Passing
 
@@ -61,19 +66,22 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Reran backend tests after Step 3 AI-safe input boundary: 33 passed, 1 warning.
 - Added backend unit tests for `.txt`, `.md`, and `.csv` raw text extraction, unsupported extension failure, bad encoding failure, and extraction-to-AI-safe-input flow.
 - Reran backend tests after Step 4 simple text extractors: 40 passed, 1 warning.
+- Added backend unit tests for PDF text extraction, first-50-pages extraction, no-text PDF failure, malformed PDF failure, and PDF diagnostics isolation.
+- Reran targeted extractor tests after Step 5 PDF extraction: 12 passed.
+- Reran backend tests after Step 5 PDF extraction: 45 passed, 1 warning.
 
 ## Automated Test Scope Remaining
 
-- PDF and DOCX extraction tests are deferred to their extractor steps.
+- DOCX extraction tests are deferred to the DOCX extractor step.
 - Enrichment endpoint tests are deferred until fake enrichment endpoint work.
 
 ## Manual/User Test Scope Remaining
 
-- No manual browser verification is needed for Steps 1 through 4 because they are backend-only storage/detail/input-boundary/extraction work.
+- No manual browser verification is needed for Steps 1 through 5 because they are backend-only storage/detail/input-boundary/extraction work.
 
 ## Known Gaps, Risks, Follow-Ups
 
 - Source removal does not yet cascade AI records; this is deferred until AI records are integrated into source detail and sync behavior.
 - AI records are exposed through source-detail API responses but not yet through the frontend.
 - User-visible malformed-AI-record diagnostics are deferred until the frontend has an AI section or broader diagnostics surface; Step 2 logs invalid records.
-- PDF/DOCX extraction, prompt rendering, and model-provider code do not exist yet.
+- DOCX extraction, prompt rendering, and model-provider code do not exist yet.
