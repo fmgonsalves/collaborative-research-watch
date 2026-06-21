@@ -40,11 +40,19 @@ type TagRecord = {
   updated_at: string;
 };
 type TagSuggestion = { tag: string; count: number };
+type SourceAIEnrichment = {
+  status: "generated" | "extraction_failed" | "fetch_failed" | "generation_failed";
+  generated_at: string;
+  ai_generated_tags: string[];
+  summary: string;
+  error_summary?: string | null;
+};
 type SourceDetail = SourceSummary & {
   open_url?: string | null;
   open_path?: string | null;
   comments: CommentRecord[];
   tag_records: TagRecord[];
+  ai?: SourceAIEnrichment | null;
 };
 type SyncSourceEvent = {
   source_id: string;
@@ -747,6 +755,8 @@ function DetailPanel({
         </form>
       </section>
 
+      <AIEnrichmentSection detail={detail} busy={busy} runAction={runAction} onChanged={onChanged} />
+
       <section>
         <h3>Comments</h3>
         <div className="comments">
@@ -805,6 +815,69 @@ function DetailPanel({
         </form>
       </section>
     </aside>
+  );
+}
+
+function AIEnrichmentSection({
+  detail,
+  busy,
+  runAction,
+  onChanged
+}: {
+  detail: SourceDetail;
+  busy: boolean;
+  runAction: (action: () => Promise<void>, success: string) => Promise<void>;
+  onChanged: () => Promise<void>;
+}) {
+  const isDocument = detail.type === "document";
+  const ai = detail.ai;
+  const generatedAt = ai ? new Date(ai.generated_at).toLocaleString() : "";
+  return (
+    <section className="ai-section">
+      <div className="section-heading-row">
+        <div>
+          <h3>AI enrichment</h3>
+          <p className="muted">{ai ? `Status: ${ai.status}` : "No AI enrichment yet."}</p>
+        </div>
+        <button
+          className="secondary"
+          disabled={busy || !isDocument}
+          onClick={() =>
+            runAction(async () => {
+              await api<SourceAIEnrichment>(`/api/sources/${detail.source_id}/ai/enrich`, { method: "POST", body: "{}" });
+              await onChanged();
+            }, "AI enrichment generated.")
+          }
+        >
+          Generate AI
+        </button>
+      </div>
+      {!isDocument && <p className="muted">Link enrichment is unavailable until link fetching is implemented.</p>}
+      {ai && (
+        <div className="ai-output">
+          <div>
+            <h4>AI-generated tags</h4>
+            {ai.ai_generated_tags.length > 0 ? (
+              <div className="tag-list">
+                {ai.ai_generated_tags.map((tag) => (
+                  <span className="tag ai-tag" key={tag}>{tag}</span>
+                ))}
+              </div>
+            ) : (
+              <p className="empty">No AI-generated tags.</p>
+            )}
+          </div>
+          {ai.summary && (
+            <div>
+              <h4>Summary</h4>
+              <p className="ai-summary">{ai.summary}</p>
+            </div>
+          )}
+          {ai.error_summary && <p className="ai-error">{ai.error_summary}</p>}
+          <p className="muted">Updated {generatedAt}</p>
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -19,6 +19,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Extract PDF text with `pypdf` first; for PDFs longer than 50 pages, inspect only the first 50 pages instead of failing the whole extraction.
 - Treat the first enrichment pass as document-based only; link enrichment returns `409` and writes no AI record until link fetching and HTML extraction exist.
 - Use a deterministic local fake generator for Step 6 so API, extraction, AI-safe input, and AI record writing can be proven before model-provider work.
+- Show AI enrichment in source detail before adding AI browse/search/filter behavior; link sources show a disabled generate action until link fetching exists.
 
 ## Build Steps
 
@@ -28,7 +29,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - [completed] Step 4: Simple text extractors.
 - [completed] Step 5: PDF extractor.
 - [completed] Step 6: Fake enrichment endpoint.
-- [pending] Step 7: Source detail UI.
+- [completed] Step 7: Source detail UI.
 - [pending] Step 8: Real model adapter.
 - [pending] Step 9: Browse/search/filter over AI fields.
 - [pending] Step 10: DOCX extractor.
@@ -57,6 +58,9 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added safe `409` rejection for link enrichment until link fetching is implemented.
 - Added safe extraction-failure AI record writing for missing, unsafe, unreadable, or unsupported document extraction cases.
 - Kept manual sync separate from enrichment; sync does not create or update AI records.
+- Added source-detail UI for AI enrichment status, AI-generated tags, summary text, and safe error summaries.
+- Added a manual document-only `Generate AI` action that calls the fake enrichment endpoint and refreshes source detail.
+- Kept link enrichment visible but disabled in the UI until link fetching and HTML extraction exist.
 
 ## Automated Tests Added And Passing
 
@@ -79,21 +83,22 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added backend API tests for unknown-source enrichment, link `409` behavior, generated fake AI records, source-detail loading after enrichment, safe extraction failures, path-safety failures, confidentiality exclusions, and manual-sync non-enrichment.
 - Reran targeted API tests after Step 6 fake enrichment endpoint: 18 passed, 1 warning.
 - Reran backend tests after Step 6 fake enrichment endpoint: 52 passed, 1 warning.
+- Reran frontend build after Step 7 source detail AI UI: passed.
 
 ## Automated Test Scope Remaining
 
 - DOCX extraction tests are deferred until after the first end-to-end enrichment pass is proven.
 - Link fetching and HTML extraction tests are deferred until after the first document-based enrichment pass is proven.
-- Source detail UI tests are deferred until frontend display work.
+- Browse/search/filter tests for AI fields are deferred until Step 9.
 
 ## Manual/User Test Scope Remaining
 
-- No manual browser verification is needed for Steps 1 through 6 because they are backend-only storage/detail/input-boundary/extraction/enrichment API work.
+- Step 7 manual browser verification passed: document generation worked, link generation was disabled, and human-created tags remained visually separate from AI-generated tags.
 
 ## Known Gaps, Risks, Follow-Ups
 
 - Source removal does not yet cascade AI records; this is deferred until AI records are integrated into source detail and sync behavior.
-- AI records are exposed through source-detail API responses but not yet through the frontend.
+- AI records are exposed through source-detail API responses and source-detail frontend display, but not yet browse/search/filter.
 - User-visible malformed-AI-record diagnostics are deferred until the frontend has an AI section or broader diagnostics surface; Step 2 logs invalid records.
 - DOCX extraction is intentionally deferred until after the first end-to-end enrichment pass.
 - Link fetching and HTML extraction are intentionally deferred until after the first document-based enrichment pass; link enrichment returns `409` in the meantime.

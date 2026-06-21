@@ -103,22 +103,25 @@ Done when:
 
 ## 7. Source Detail UI
 
-Display AI enrichment on source detail.
+Display AI enrichment on source detail and expose the manual single-source enrichment action.
 
 UI behavior:
 
 - Show AI summary in a separate AI-labeled section.
 - Show AI-generated tags separately from human-created tags.
 - Show AI status or safe error summary when enrichment fails.
+- Show an enabled `Generate AI` action for document sources.
+- Show `Generate AI` disabled for link sources until link fetching is implemented.
+- Refresh source detail after successful document enrichment so the new AI record appears immediately.
 
 Tests:
 
 - Frontend build succeeds.
-- Browser verification only when explicitly approved for the current task.
+- Browser verification only when explicitly approved for the current task; when approved, verify document generation, disabled link behavior, and human/AI tag separation.
 
 Done when:
 
-- Users can distinguish human collaboration data from AI-generated enrichment.
+- Users can distinguish human collaboration data from AI-generated enrichment and manually generate fake AI enrichment for supported document sources.
 
 ## 8. Real Model Adapter
 
