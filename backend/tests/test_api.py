@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from research_watch.ai_generation import AIGenerationError, AIGenerationOutput
 from research_watch.ai_store import ai_record_path, read_ai_record, write_ai_record
 from research_watch.api import app, workspace
 from research_watch.markdown_store import read_markdown_record, write_markdown_record
-from research_watch.models import AIRecord
+from research_watch.models import AIRecord, AISafeSourceInput
 
 
 def client_for(tmp_path: Path) -> TestClient:
@@ -332,7 +335,15 @@ def test_enrich_link_source_returns_409_without_writing_ai_record(tmp_path: Path
     assert not ai_record_path(tmp_path, source["source_id"]).exists()
 
 
-def test_enrich_document_source_writes_generated_ai_record_and_detail_loads_it(tmp_path: Path) -> None:
+def test_enrich_document_source_writes_generated_ai_record_and_detail_loads_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_generator(_source_input: AISafeSourceInput) -> AIGenerationOutput:
+        return AIGenerationOutput(
+            summary="Mocked real model summary.",
+            ai_generated_tags=["methods", "research", "document"],
+            model="test-model",
+        )
+
+    monkeypatch.setattr("research_watch.sync.generate_with_openai", fake_generator)
     client = client_for(tmp_path)
     upload_response = client.post(
         "/api/sources/upload",
@@ -349,10 +360,10 @@ def test_enrich_document_source_writes_generated_ai_record_and_detail_loads_it(t
     assert issues == []
     assert ai_record is not None
     assert ai_record.status == "generated"
-    assert ai_record.ai_generated_tags == ["ai-test", "document"]
-    assert ai_record.summary == f"Fake summary for {source['title']}. Extracted 20 characters for Path 2 validation."
+    assert ai_record.ai_generated_tags == ["methods", "research", "document"]
+    assert ai_record.summary == "Mocked real model summary."
     assert ai_record.extractor == "simple-text"
-    assert ai_record.model == "fake-local-generator"
+    assert ai_record.model == "test-model"
     assert detail_response.json()["ai"] == response.json()
 
 
@@ -404,7 +415,15 @@ def test_enrich_document_with_unsafe_or_missing_path_fails_without_exposing_loca
     assert "outside.md" not in serialized
 
 
-def test_enrich_document_does_not_include_human_collaboration_data(tmp_path: Path) -> None:
+def test_enrich_document_does_not_include_human_collaboration_data(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_generator(_source_input: AISafeSourceInput) -> AIGenerationOutput:
+        return AIGenerationOutput(
+            summary="Mocked real model summary.",
+            ai_generated_tags=["methods", "research", "document"],
+            model="test-model",
+        )
+
+    monkeypatch.setattr("research_watch.sync.generate_with_openai", fake_generator)
     client = client_for(tmp_path)
     client.post("/api/users/bootstrap", json={"name": "Ada Confidential", "email": "ada.secret@example.com"})
     client.post(
@@ -431,6 +450,101 @@ def test_enrich_document_does_not_include_human_collaboration_data(tmp_path: Pat
     assert "human-secret-tag" not in serialized
     assert "Ada Confidential" not in serialized
     assert "ada.secret@example.com" not in serialized
+
+
+def test_enrich_document_missing_ai_config_returns_safe_error_without_writing_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("RESEARCH_WATCH_OPENAI_MODEL", raising=False)
+    client = client_for(tmp_path)
+    upload_response = client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper\nSource text.", "text/markdown")},
+    )
+    assert upload_response.status_code == 200
+    source = client.get("/api/sources").json()[0]
+
+    response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "AI generation is not configured. Missing: OPENAI_API_KEY, RESEARCH_WATCH_OPENAI_MODEL."
+    assert not ai_record_path(tmp_path, source["source_id"]).exists()
+
+
+def test_enrich_document_provider_failure_writes_generation_failed_when_no_prior_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def failing_generator(_source_input: AISafeSourceInput) -> AIGenerationOutput:
+        raise AIGenerationError("AI provider request failed.")
+
+    monkeypatch.setattr("research_watch.sync.generate_with_openai", failing_generator)
+    client = client_for(tmp_path)
+    upload_response = client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper\nSource text.", "text/markdown")},
+    )
+    assert upload_response.status_code == 200
+    source = client.get("/api/sources").json()[0]
+
+    with caplog.at_level(logging.WARNING, logger="research_watch.sync"):
+        response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+    ai_record, issues = read_ai_record(tmp_path, source["source_id"])
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "generation_failed"
+    assert response.json()["error_summary"] == "AI provider request failed."
+    assert issues == []
+    assert ai_record is not None
+    assert ai_record.status == "generation_failed"
+    assert ai_record.summary == ""
+    assert ai_record.error_summary == "AI provider request failed."
+    assert "writing_status=generation_failed" in caplog.text
+    assert source["source_id"] in caplog.text
+
+
+def test_enrich_document_provider_failure_preserves_existing_generated_record(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def failing_generator(_source_input: AISafeSourceInput) -> AIGenerationOutput:
+        raise AIGenerationError("AI provider request failed.")
+
+    monkeypatch.setattr("research_watch.sync.generate_with_openai", failing_generator)
+    client = client_for(tmp_path)
+    upload_response = client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper\nSource text.", "text/markdown")},
+    )
+    assert upload_response.status_code == 200
+    source = client.get("/api/sources").json()[0]
+    existing = AIRecord(
+        source_id=source["source_id"],
+        status="generated",
+        generated_at="2026-06-15T12:00:00+00:00",
+        source_title=source["title"],
+        source_type="document",
+        ai_generated_tags=["existing", "record", "preserved"],
+        summary="Existing paid-for summary.",
+        extractor="simple-text",
+        model="previous-model",
+    )
+    write_ai_record(tmp_path, existing)
+
+    with caplog.at_level(logging.WARNING, logger="research_watch.sync"):
+        response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+    ai_record, issues = read_ai_record(tmp_path, source["source_id"])
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "AI provider request failed."
+    assert issues == []
+    assert ai_record == existing
+    assert "existing_record=preserved" in caplog.text
+    assert source["source_id"] in caplog.text
 
 
 def test_manual_sync_does_not_create_ai_records(tmp_path: Path) -> None:

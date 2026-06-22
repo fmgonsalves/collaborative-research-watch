@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .ai_generation import AIGenerationOutput
 from .models import AISafeSourceInput
 
 FAKE_MODEL_NAME = "fake-local-generator"
@@ -11,4 +12,12 @@ def fake_summary(source_input: AISafeSourceInput) -> str:
 
 
 def fake_tags(source_input: AISafeSourceInput) -> list[str]:
-    return ["ai-test", source_input.source_type]
+    return ["ai-test", source_input.source_type, "validation"]
+
+
+def fake_generate(source_input: AISafeSourceInput) -> AIGenerationOutput:
+    return AIGenerationOutput(
+        summary=fake_summary(source_input),
+        ai_generated_tags=fake_tags(source_input),
+        model=FAKE_MODEL_NAME,
+    )

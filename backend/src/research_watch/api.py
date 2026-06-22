@@ -7,6 +7,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from .ai_generation import AIConfigurationError, AIGenerationError
 from .csv_store import append_link, read_users
 from .logging_config import configure_logging
 from .models import (
@@ -124,7 +125,12 @@ def enrich_source(source_id: str) -> SourceAIEnrichment:
         raise HTTPException(status_code=404, detail="Source not found.")
     if source.type == "link":
         raise HTTPException(status_code=409, detail="Link enrichment is not available until link fetching is implemented.")
-    return repository.enrich_document_source(source)
+    try:
+        return repository.enrich_document_source(source)
+    except AIConfigurationError as error:
+        raise HTTPException(status_code=503, detail=error.safe_message) from error
+    except AIGenerationError as error:
+        raise HTTPException(status_code=502, detail=error.safe_message) from error
 
 
 @app.post("/api/sources/upload")

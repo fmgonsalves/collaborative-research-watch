@@ -9,11 +9,11 @@ from urllib.parse import urlparse, urlunparse
 
 from pydantic import ValidationError
 
+from .ai_generation import AIConfigurationError, AIGenerationError, AIGenerator, generate_with_openai
 from .ai_input import build_ai_safe_source_input
 from .ai_store import read_ai_record, write_ai_record
 from .csv_store import read_links, read_users
 from .extractors import extract_document_text
-from .fake_ai import FAKE_MODEL_NAME, fake_summary, fake_tags
 from .markdown_store import read_markdown_record, write_markdown_record
 from .models import (
     AIRecord,
@@ -486,7 +486,8 @@ class ResearchRepository:
             return None
         return source_path
 
-    def enrich_document_source(self, record: SourceRecord) -> SourceAIEnrichment:
+    def enrich_document_source(self, record: SourceRecord, generator: AIGenerator | None = None) -> SourceAIEnrichment:
+        active_generator = generator or generate_with_openai
         now = utc_now()
         path = self.source_document_path_for_enrichment(record)
         if path is None:
@@ -517,16 +518,46 @@ class ResearchRepository:
             return source_ai_enrichment(ai_record)
 
         source_input = build_ai_safe_source_input(record, extraction.extracted)
+        existing_ai_record, _ = read_ai_record(self.root, record.source_id)
+        try:
+            generation = active_generator(source_input)
+        except AIConfigurationError as error:
+            logger.warning("AI generation skipped source_id=%s reason=%s", record.source_id, error.safe_message)
+            raise
+        except AIGenerationError as error:
+            if existing_ai_record is not None:
+                logger.warning(
+                    "AI generation failed source_id=%s existing_record=preserved reason=%s",
+                    record.source_id,
+                    error.safe_message,
+                )
+                raise
+            logger.warning(
+                "AI generation failed source_id=%s writing_status=generation_failed reason=%s",
+                record.source_id,
+                error.safe_message,
+            )
+            ai_record = AIRecord(
+                source_id=record.source_id,
+                status="generation_failed",
+                generated_at=now,
+                source_title=record.title,
+                source_type=record.type,
+                error_summary=error.safe_message,
+                extractor=extraction.extractor,
+            )
+            write_ai_record(self.root, ai_record)
+            return source_ai_enrichment(ai_record)
         ai_record = AIRecord(
             source_id=record.source_id,
             status="generated",
             generated_at=now,
             source_title=record.title,
             source_type=record.type,
-            ai_generated_tags=fake_tags(source_input),
-            summary=fake_summary(source_input),
+            ai_generated_tags=generation.ai_generated_tags,
+            summary=generation.summary,
             extractor=extraction.extractor,
-            model=FAKE_MODEL_NAME,
+            model=generation.model,
         )
         write_ai_record(self.root, ai_record)
         return source_ai_enrichment(ai_record)

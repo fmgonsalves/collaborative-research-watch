@@ -20,6 +20,11 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Treat the first enrichment pass as document-based only; link enrichment returns `409` and writes no AI record until link fetching and HTML extraction exist.
 - Use a deterministic local fake generator for Step 6 so API, extraction, AI-safe input, and AI record writing can be proven before model-provider work.
 - Show AI enrichment in source detail before adding AI browse/search/filter behavior; link sources show a disabled generate action until link fetching exists.
+- Use the OpenAI Responses API for real Step 8 generation, behind a narrow swappable adapter.
+- Require explicit `OPENAI_API_KEY` and `RESEARCH_WATCH_OPENAI_MODEL`; do not hard-code a default model.
+- Use SDK-native Pydantic structured output for `summary` plus 3-8 lowercase AI-generated tags.
+- Cap model input text at the first 30,000 characters until chunking exists.
+- Preserve existing AI records when configuration or provider failures occur during regeneration.
 
 ## Build Steps
 
@@ -30,7 +35,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - [completed] Step 5: PDF extractor.
 - [completed] Step 6: Fake enrichment endpoint.
 - [completed] Step 7: Source detail UI.
-- [pending] Step 8: Real model adapter.
+- [completed] Step 8: Real model adapter.
 - [pending] Step 9: Browse/search/filter over AI fields.
 - [pending] Step 10: DOCX extractor.
 - [pending] Step 11: Link fetching and HTML extraction.
@@ -61,6 +66,12 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added source-detail UI for AI enrichment status, AI-generated tags, summary text, and safe error summaries.
 - Added a manual document-only `Generate AI` action that calls the fake enrichment endpoint and refreshes source detail.
 - Kept link enrichment visible but disabled in the UI until link fetching and HTML extraction exist.
+- Added the official OpenAI Python SDK as a backend dependency.
+- Added a backend AI generation boundary with SDK-native Pydantic structured-output parsing and a 30,000-character input cap.
+- Wired document enrichment through the real OpenAI generator while keeping the fake generator available as a test double.
+- Added safe missing-configuration handling that writes no AI record.
+- Added provider-failure handling that writes `generation_failed` only when there is no prior valid AI record to preserve.
+- Added backend logs for AI provider exceptions and generation-failure preservation/write decisions while keeping UI/API errors safe.
 
 ## Automated Tests Added And Passing
 
@@ -84,6 +95,10 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Reran targeted API tests after Step 6 fake enrichment endpoint: 18 passed, 1 warning.
 - Reran backend tests after Step 6 fake enrichment endpoint: 52 passed, 1 warning.
 - Reran frontend build after Step 7 source detail AI UI: passed.
+- Added backend unit/API tests for OpenAI config requirements, source-public-only model payloads, long input capping, Pydantic structured-output validation, mocked provider success, missing config, provider failure writes, preservation of existing AI records, and internal generation-failure logging.
+- Reran targeted AI generation/API tests after Step 8 real model adapter: 28 passed, 1 warning.
+- Reran backend tests after Step 8 real model adapter: 64 passed, 1 warning.
+- Reran frontend build after Step 8 real model adapter: passed.
 
 ## Automated Test Scope Remaining
 
@@ -102,4 +117,4 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - User-visible malformed-AI-record diagnostics are deferred until the frontend has an AI section or broader diagnostics surface; Step 2 logs invalid records.
 - DOCX extraction is intentionally deferred until after the first end-to-end enrichment pass.
 - Link fetching and HTML extraction are intentionally deferred until after the first document-based enrichment pass; link enrichment returns `409` in the meantime.
-- Prompt rendering and model-provider code do not exist yet.
+- Chunking and token budgeting beyond the 30,000-character Step 8 cap do not exist yet.

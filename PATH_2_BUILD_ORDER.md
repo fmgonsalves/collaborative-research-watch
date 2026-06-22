@@ -125,18 +125,21 @@ Done when:
 
 ## 8. Real Model Adapter
 
-Add the real model call behind the same generation boundary used by the fake generator.
+Add the real OpenAI model call behind the same generation boundary used by the fake generator.
 
 Tests:
 
 - Provider calls are mocked in automated API tests.
-- Provider errors write `generation_failed`.
+- Missing `OPENAI_API_KEY` or `RESEARCH_WATCH_OPENAI_MODEL` returns a safe error and does not write an AI record.
+- Provider errors write `generation_failed` when no prior AI record exists.
+- Provider errors preserve an existing generated AI record.
 - Mocked provider input contains only AI-safe fields.
+- Long extracted content is capped before model input until chunking exists.
 - Prompt construction tests remain provider-independent.
 
 Done when:
 
-- One-source manual enrichment can call the configured model and write a valid AI record.
+- One-source manual enrichment can call the explicitly configured OpenAI model and write a valid AI record.
 
 ## 9. Browse/Search/Filter Over AI Fields
 
