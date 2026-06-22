@@ -11,7 +11,7 @@ from pydantic import ValidationError
 
 from .ai_generation import AIConfigurationError, AIGenerationError, AIGenerator, generate_with_openai
 from .ai_input import build_ai_safe_source_input
-from .ai_store import read_ai_record, write_ai_record
+from .ai_store import read_ai_record, read_ai_records, write_ai_record
 from .csv_store import read_links, read_users
 from .extractors import extract_document_text
 from .markdown_store import read_markdown_record, write_markdown_record
@@ -398,10 +398,41 @@ class ResearchRepository:
         self.root.joinpath("index.md").write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
         logger.info("Wrote index.md for %d sources (%dms)", len(records), elapsed_ms(started))
 
-    def summaries(self, search: str = "", type_filter: str = "", status: str = "", tag: str = "", sort: str = "title") -> list[SourceSummary]:
+    def list_ai_tag_suggestions(self, q: str = "", limit: int = 50) -> list[TagSuggestion]:
+        ai_records, issues = read_ai_records(self.root)
+        for issue in issues:
+            logger.warning("invalid_ai_record path=%s message=%s", issue.path, issue.message)
+        counts: dict[str, int] = defaultdict(int)
+        for record in ai_records:
+            for tag in record.ai_generated_tags:
+                counts[tag] += 1
+        query = q.strip().lower()
+        suggestions = [
+            TagSuggestion(tag=tag, count=count)
+            for tag, count in counts.items()
+            if not query or query in tag.lower()
+        ]
+        suggestions.sort(key=lambda item: item.tag.lower())
+        cap = min(max(limit, 1), 100)
+        return suggestions[:cap]
+
+    def summaries(
+        self,
+        search: str = "",
+        type_filter: str = "",
+        status: str = "",
+        tag: str = "",
+        ai_tag: str = "",
+        ai_status: str = "",
+        sort: str = "title",
+    ) -> list[SourceSummary]:
         records, _ = self.read_source_records()
         comments, _ = self.read_comments()
         tags, _ = self.read_tags()
+        ai_records, ai_issues = read_ai_records(self.root)
+        for issue in ai_issues:
+            logger.warning("invalid_ai_record path=%s message=%s", issue.path, issue.message)
+        ai_by_source = {record.source_id: record for record in ai_records}
         comments_by_source = defaultdict(list)
         tags_by_source = defaultdict(list)
         for comment in comments:
@@ -412,8 +443,24 @@ class ResearchRepository:
         search_lower = search.lower().strip()
         for record in records:
             human_tags = sorted({tag_record.tag for tag_record in tags_by_source[record.source_id]})
+            ai_record = ai_by_source.get(record.source_id)
+            ai_generated_tags = sorted(ai_record.ai_generated_tags) if ai_record is not None else []
+            ai_summary = ai_record.summary if ai_record is not None else ""
+            ai_status_value = ai_record.status if ai_record is not None else None
             comment_text = " ".join(comment.body for comment in comments_by_source[record.source_id])
-            haystack = " ".join([record.title, record.type, record.lifecycle_status, record.original_url or "", record.relative_path or "", " ".join(human_tags), comment_text]).lower()
+            haystack = " ".join(
+                [
+                    record.title,
+                    record.type,
+                    record.lifecycle_status,
+                    record.original_url or "",
+                    record.relative_path or "",
+                    " ".join(human_tags),
+                    comment_text,
+                    " ".join(ai_generated_tags),
+                    ai_summary,
+                ]
+            ).lower()
             if search_lower and search_lower not in haystack:
                 continue
             if type_filter and record.type != type_filter:
@@ -421,6 +468,10 @@ class ResearchRepository:
             if status and record.lifecycle_status != status:
                 continue
             if tag and tag not in human_tags:
+                continue
+            if ai_tag and ai_tag not in ai_generated_tags:
+                continue
+            if ai_status and ai_status != ai_status_value:
                 continue
             rows.append(
                 SourceSummary(
@@ -434,6 +485,9 @@ class ResearchRepository:
                     original_url=record.original_url,
                     human_tags=human_tags,
                     comment_count=len(comments_by_source[record.source_id]),
+                    ai_status=ai_status_value,
+                    ai_generated_tags=ai_generated_tags,
+                    ai_summary=ai_summary,
                 )
             )
         key_map = {

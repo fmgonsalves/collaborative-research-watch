@@ -165,7 +165,165 @@ def test_source_detail_includes_ai_record_without_merging_human_tags(tmp_path: P
     }
     assert "extractor" not in detail["ai"]
     assert "model" not in detail["ai"]
-    assert "ai" not in summary_response.json()[0]
+    summary = summary_response.json()[0]
+    assert summary["ai_status"] == "generated"
+    assert summary["ai_generated_tags"] == ["methods", "summary"]
+    assert summary["ai_summary"] == "AI summary for the paper."
+    assert "ai" not in summary
+
+
+def test_source_browse_search_and_filters_over_ai_fields_keep_human_tags_separate(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    client.post("/api/users/bootstrap", json={"name": "Ada", "email": "ada@example.com"})
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("dataset.md", b"# Dataset", "text/markdown")},
+    )
+    sources = client.get("/api/sources", params={"sort": "title"}).json()
+    dataset = next(source for source in sources if source["title"] == "Dataset")
+    paper = next(source for source in sources if source["title"] == "Paper")
+    client.post(
+        f"/api/sources/{dataset['source_id']}/tags",
+        json={"user_email": "ada@example.com", "tag": "human-only"},
+    )
+    client.post(
+        f"/api/sources/{paper['source_id']}/tags",
+        json={"user_email": "ada@example.com", "tag": "priority"},
+    )
+    write_ai_record(
+        tmp_path,
+        AIRecord(
+            source_id=paper["source_id"],
+            status="generated",
+            generated_at="2026-06-15T12:00:00+00:00",
+            source_title=paper["title"],
+            source_type="document",
+            ai_generated_tags=["climate", "methods"],
+            summary="Ocean evidence synthesis for coastal planning.",
+            extractor="test-extractor",
+            model="test-model",
+        ),
+    )
+    write_ai_record(
+        tmp_path,
+        AIRecord(
+            source_id=dataset["source_id"],
+            status="generation_failed",
+            generated_at="2026-06-15T12:00:00+00:00",
+            source_title=dataset["title"],
+            source_type="document",
+            error_summary="AI provider request failed.",
+            extractor="test-extractor",
+        ),
+    )
+
+    ai_summary_search = client.get("/api/sources", params={"search": "coastal planning"}).json()
+    ai_tag_search = client.get("/api/sources", params={"search": "climate"}).json()
+    human_filter = client.get("/api/sources", params={"tag": "climate"}).json()
+    ai_filter = client.get("/api/sources", params={"ai_tag": "climate"}).json()
+    human_only_filter = client.get("/api/sources", params={"tag": "human-only"}).json()
+    ai_status_filter = client.get("/api/sources", params={"ai_status": "generation_failed"}).json()
+
+    assert [source["source_id"] for source in ai_summary_search] == [paper["source_id"]]
+    assert [source["source_id"] for source in ai_tag_search] == [paper["source_id"]]
+    assert human_filter == []
+    assert [source["source_id"] for source in ai_filter] == [paper["source_id"]]
+    assert [source["source_id"] for source in human_only_filter] == [dataset["source_id"]]
+    assert [source["source_id"] for source in ai_status_filter] == [dataset["source_id"]]
+    assert ai_filter[0]["human_tags"] == ["priority"]
+    assert ai_filter[0]["ai_generated_tags"] == ["climate", "methods"]
+    assert ai_filter[0]["ai_status"] == "generated"
+
+
+def test_ai_tag_suggestions_count_only_ai_generated_tags(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    client.post("/api/users/bootstrap", json={"name": "Ada", "email": "ada@example.com"})
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("dataset.md", b"# Dataset", "text/markdown")},
+    )
+    sources = client.get("/api/sources", params={"sort": "title"}).json()
+    dataset = next(source for source in sources if source["title"] == "Dataset")
+    paper = next(source for source in sources if source["title"] == "Paper")
+    client.post(
+        f"/api/sources/{dataset['source_id']}/tags",
+        json={"user_email": "ada@example.com", "tag": "climate"},
+    )
+    write_ai_record(
+        tmp_path,
+        AIRecord(
+            source_id=paper["source_id"],
+            status="generated",
+            generated_at="2026-06-15T12:00:00+00:00",
+            source_title=paper["title"],
+            source_type="document",
+            ai_generated_tags=["climate", "methods"],
+            summary="AI summary.",
+            extractor="test-extractor",
+            model="test-model",
+        ),
+    )
+    write_ai_record(
+        tmp_path,
+        AIRecord(
+            source_id=dataset["source_id"],
+            status="generated",
+            generated_at="2026-06-15T12:00:00+00:00",
+            source_title=dataset["title"],
+            source_type="document",
+            ai_generated_tags=["methods"],
+            summary="AI summary.",
+            extractor="test-extractor",
+            model="test-model",
+        ),
+    )
+
+    ai_tags_response = client.get("/api/ai-tags")
+    human_tags_response = client.get("/api/tags")
+
+    assert ai_tags_response.status_code == 200
+    assert ai_tags_response.json() == [
+        {"tag": "climate", "count": 1},
+        {"tag": "methods", "count": 2},
+    ]
+    assert human_tags_response.json() == [{"tag": "climate", "count": 1}]
+
+
+def test_malformed_ai_record_does_not_crash_source_browse(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    client = client_for(tmp_path)
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    source = client.get("/api/sources").json()[0]
+    write_markdown_record(
+        ai_record_path(tmp_path, source["source_id"]),
+        {
+            "source_id": source["source_id"],
+            "status": "not-valid",
+            "generated_at": "2026-06-15T12:00:00+00:00",
+            "source_title": source["title"],
+            "source_type": "document",
+        },
+        "Summary",
+    )
+
+    with caplog.at_level(logging.WARNING, logger="research_watch.sync"):
+        response = client.get("/api/sources")
+
+    assert response.status_code == 200
+    assert response.json()[0]["ai_status"] is None
+    assert response.json()[0]["ai_generated_tags"] == []
+    assert response.json()[0]["ai_summary"] == ""
+    assert "invalid_ai_record" in caplog.text
 
 
 def test_source_detail_includes_ai_failure_status_and_safe_error(tmp_path: Path) -> None:

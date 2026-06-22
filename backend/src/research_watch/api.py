@@ -108,8 +108,24 @@ def sync_workspace() -> SyncReport:
 
 
 @app.get("/api/sources", response_model=list[SourceSummary])
-def list_sources(search: str = "", type: str = "", status: str = "", tag: str = "", sort: str = "title") -> list[SourceSummary]:
-    return repo().summaries(search=search, type_filter=type, status=status, tag=tag, sort=sort)
+def list_sources(
+    search: str = "",
+    type: str = "",
+    status: str = "",
+    tag: str = "",
+    ai_tag: str = "",
+    ai_status: str = "",
+    sort: str = "title",
+) -> list[SourceSummary]:
+    return repo().summaries(
+        search=search,
+        type_filter=type,
+        status=status,
+        tag=tag,
+        ai_tag=ai_tag,
+        ai_status=ai_status,
+        sort=sort,
+    )
 
 
 @app.get("/api/sources/{source_id}", response_model=SourceDetail)
@@ -193,6 +209,11 @@ def create_tag(source_id: str, request: TagCreateRequest) -> HumanTagRecord:
 @app.get("/api/tags", response_model=list[TagSuggestion])
 def list_tags(q: str = "", limit: int = 50) -> list[TagSuggestion]:
     return repo().list_tag_suggestions(q=q, limit=limit)
+
+
+@app.get("/api/ai-tags", response_model=list[TagSuggestion])
+def list_ai_tags(q: str = "", limit: int = 50) -> list[TagSuggestion]:
+    return repo().list_ai_tag_suggestions(q=q, limit=limit)
 
 
 @app.put("/api/tags/{tag_id}", response_model=HumanTagRecord)

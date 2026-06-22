@@ -25,6 +25,10 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Use SDK-native Pydantic structured output for `summary` plus 3-8 lowercase AI-generated tags.
 - Cap model input text at the first 30,000 characters until chunking exists.
 - Preserve existing AI records when configuration or provider failures occur during regeneration.
+- Include AI summary text and AI-generated tags in browse keyword search.
+- Keep human tag filtering and AI-generated tag filtering separate; `tag` remains human-only and `ai_tag` matches only AI-generated tags.
+- Keep source lifecycle status and AI record status filtering separate; `status` remains source lifecycle and `ai_status` matches AI enrichment status.
+- Display AI-generated tags in their own browse-table column with distinct styling from human-created tags.
 
 ## Build Steps
 
@@ -36,7 +40,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - [completed] Step 6: Fake enrichment endpoint.
 - [completed] Step 7: Source detail UI.
 - [completed] Step 8: Real model adapter.
-- [pending] Step 9: Browse/search/filter over AI fields.
+- [completed] Step 9: Browse/search/filter over AI fields.
 - [pending] Step 10: DOCX extractor.
 - [pending] Step 11: Link fetching and HTML extraction.
 
@@ -72,6 +76,11 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added safe missing-configuration handling that writes no AI record.
 - Added provider-failure handling that writes `generation_failed` only when there is no prior valid AI record to preserve.
 - Added backend logs for AI provider exceptions and generation-failure preservation/write decisions while keeping UI/API errors safe.
+- Added AI enrichment fields to source summary responses: AI status, AI-generated tags, and AI summary text.
+- Added backend browse/search/filter support for AI summary text, AI-generated tags, and AI record status while preserving human-only tag filtering.
+- Added `/api/ai-tags` for AI-generated tag suggestions and counts, separate from human tag suggestions.
+- Added frontend browse filters for AI-generated tags and AI status.
+- Added a separate AI tags column in the browse table with distinct AI tag styling.
 
 ## Automated Tests Added And Passing
 
@@ -99,12 +108,15 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Reran targeted AI generation/API tests after Step 8 real model adapter: 28 passed, 1 warning.
 - Reran backend tests after Step 8 real model adapter: 64 passed, 1 warning.
 - Reran frontend build after Step 8 real model adapter: passed.
+- Added backend API tests proving source summaries include AI fields, keyword search matches AI summary text and AI-generated tags, `tag` remains human-only, `ai_tag` remains AI-only, `ai_status` filters generated/failure records, malformed AI records do not crash browse, and AI tag suggestions count only AI-generated tags.
+- Reran targeted API tests after Step 9 browse/search/filter: 24 passed, 1 warning.
+- Reran backend tests after Step 9 browse/search/filter: 67 passed, 1 warning.
+- Reran frontend build after Step 9 browse/search/filter: passed.
 
 ## Automated Test Scope Remaining
 
 - DOCX extraction tests are deferred until after the first end-to-end enrichment pass is proven.
 - Link fetching and HTML extraction tests are deferred until after the first document-based enrichment pass is proven.
-- Browse/search/filter tests for AI fields are deferred until Step 9.
 
 ## Manual/User Test Scope Remaining
 
@@ -112,8 +124,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 
 ## Known Gaps, Risks, Follow-Ups
 
-- Source removal does not yet cascade AI records; this is deferred until AI records are integrated into source detail and sync behavior.
-- AI records are exposed through source-detail API responses and source-detail frontend display, but not yet browse/search/filter.
+- AI records are exposed through source-detail and browse/search/filter surfaces, but source removal still does not cascade AI records.
 - User-visible malformed-AI-record diagnostics are deferred until the frontend has an AI section or broader diagnostics surface; Step 2 logs invalid records.
 - DOCX extraction is intentionally deferred until after the first end-to-end enrichment pass.
 - Link fetching and HTML extraction are intentionally deferred until after the first document-based enrichment pass; link enrichment returns `409` in the meantime.

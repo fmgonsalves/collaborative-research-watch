@@ -13,6 +13,9 @@ AI_RECORD_STATUSES = {"generated", "extraction_failed", "fetch_failed", "generat
 AIRecordStatus = Literal["generated", "extraction_failed", "fetch_failed", "generation_failed"]
 
 
+# Shared helpers and validation/reporting primitives.
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -21,6 +24,10 @@ class ValidationIssue(BaseModel):
     code: str
     message: str
     path: str | None = None
+
+
+# Persisted workspace records. These map to shared workspace files such as
+# users.csv and records/**/*.md.
 
 
 class UserRecord(BaseModel):
@@ -73,6 +80,10 @@ class AIRecord(BaseModel):
     model: str | None = None
 
 
+# Extraction and AI input boundary models. These are backend-internal typed
+# payloads, not persisted workspace record schemas.
+
+
 class ExtractedSourceText(BaseModel):
     source_id: str
     content_text: str
@@ -95,6 +106,10 @@ class AISafeSourceInput(BaseModel):
     filename: str | None = None
 
 
+# API response projections. These may combine persisted records at read time
+# for frontend convenience; they are not the on-disk storage schema.
+
+
 class SourceSummary(BaseModel):
     source_id: str
     type: str
@@ -106,6 +121,9 @@ class SourceSummary(BaseModel):
     original_url: str | None = None
     human_tags: list[str] = Field(default_factory=list)
     comment_count: int = 0
+    ai_status: AIRecordStatus | None = None
+    ai_generated_tags: list[str] = Field(default_factory=list)
+    ai_summary: str = ""
 
 
 class SourceAIEnrichment(BaseModel):
@@ -155,6 +173,9 @@ class SyncReport(BaseModel):
     updated_sources: list[SyncSourceEvent] = Field(default_factory=list)
     removed_sources: list[SyncSourceEvent] = Field(default_factory=list)
     issues: list[ValidationIssue] = Field(default_factory=list)
+
+
+# API request bodies and lightweight API helper responses.
 
 
 class WorkspaceSelectRequest(BaseModel):

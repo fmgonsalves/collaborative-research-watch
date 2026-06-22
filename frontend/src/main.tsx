@@ -11,6 +11,7 @@ type WorkspaceState = {
   users: UserRecord[];
   issues: ValidationIssue[];
 };
+type AIStatus = "generated" | "extraction_failed" | "fetch_failed" | "generation_failed";
 type SourceSummary = {
   source_id: string;
   type: "document" | "link";
@@ -21,6 +22,9 @@ type SourceSummary = {
   relative_path?: string | null;
   original_url?: string | null;
   human_tags: string[];
+  ai_status?: AIStatus | null;
+  ai_generated_tags: string[];
+  ai_summary: string;
   comment_count: number;
 };
 type CommentRecord = {
@@ -41,7 +45,7 @@ type TagRecord = {
 };
 type TagSuggestion = { tag: string; count: number };
 type SourceAIEnrichment = {
-  status: "generated" | "extraction_failed" | "fetch_failed" | "generation_failed";
+  status: AIStatus;
   generated_at: string;
   ai_generated_tags: string[];
   summary: string;
@@ -103,11 +107,14 @@ function App() {
   const [typeFilter, setTypeFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [tagFilter, setTagFilter] = useState("");
+  const [aiTagFilter, setAiTagFilter] = useState("");
+  const [aiStatusFilter, setAiStatusFilter] = useState("");
   const [sort, setSort] = useState("title");
   const [report, setReport] = useState<SyncReport | null>(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [tagSuggestions, setTagSuggestions] = useState<TagSuggestion[]>([]);
+  const [aiTagSuggestions, setAiTagSuggestions] = useState<TagSuggestion[]>([]);
 
   const selectedUserRecord = workspace?.users.find((user) => user.email === selectedUser);
 
@@ -120,12 +127,19 @@ function App() {
     setTagSuggestions(rows);
   };
 
+  const refreshAiTagSuggestions = async () => {
+    const rows = await api<TagSuggestion[]>("/api/ai-tags");
+    setAiTagSuggestions(rows);
+  };
+
   const refreshSources = async () => {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (typeFilter) params.set("type", typeFilter);
     if (statusFilter) params.set("status", statusFilter);
     if (tagFilter) params.set("tag", tagFilter);
+    if (aiTagFilter) params.set("ai_tag", aiTagFilter);
+    if (aiStatusFilter) params.set("ai_status", aiStatusFilter);
     params.set("sort", sort);
     const rows = await api<SourceSummary[]>(`/api/sources?${params.toString()}`);
     setSources(rows);
@@ -142,8 +156,9 @@ function App() {
     if (workspace?.initialized && workspace.has_users) {
       refreshSources().catch((error) => setMessage(error.message));
       refreshTagSuggestions().catch(() => undefined);
+      refreshAiTagSuggestions().catch(() => undefined);
     }
-  }, [workspace?.initialized, workspace?.has_users, search, typeFilter, statusFilter, tagFilter, sort]);
+  }, [workspace?.initialized, workspace?.has_users, search, typeFilter, statusFilter, tagFilter, aiTagFilter, aiStatusFilter, sort]);
 
   useEffect(() => {
     if (selectedSourceId) {
@@ -235,7 +250,7 @@ function App() {
       <section className="main-grid">
         <div className="browse-pane">
           <div className="filters">
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search sources, tags, comments" />
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search sources, tags, comments, AI summaries" />
             <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Type filter">
               <option value="">All types</option>
               <option value="document">Documents</option>
@@ -247,12 +262,27 @@ function App() {
               <option value="changed">Changed</option>
             </select>
             <select value={tagFilter} onChange={(event) => setTagFilter(event.target.value)} aria-label="Tag filter">
-              <option value="">All tags</option>
+              <option value="">All human tags</option>
               {tagSuggestions.map((item) => (
                 <option key={item.tag} value={item.tag}>
                   {item.tag}
                 </option>
               ))}
+            </select>
+            <select value={aiTagFilter} onChange={(event) => setAiTagFilter(event.target.value)} aria-label="AI tag filter">
+              <option value="">All AI tags</option>
+              {aiTagSuggestions.map((item) => (
+                <option key={item.tag} value={item.tag}>
+                  {item.tag}
+                </option>
+              ))}
+            </select>
+            <select value={aiStatusFilter} onChange={(event) => setAiStatusFilter(event.target.value)} aria-label="AI status filter">
+              <option value="">All AI statuses</option>
+              <option value="generated">Generated</option>
+              <option value="extraction_failed">Extraction failed</option>
+              <option value="fetch_failed">Fetch failed</option>
+              <option value="generation_failed">Generation failed</option>
             </select>
             <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort">
               <option value="title">Title</option>
@@ -272,6 +302,7 @@ function App() {
           onChanged={async () => {
             await refreshSources();
             await refreshTagSuggestions();
+            await refreshAiTagSuggestions();
             if (selectedSourceId) setDetail(await api<SourceDetail>(`/api/sources/${selectedSourceId}`));
           }}
         />
@@ -506,7 +537,8 @@ function SourceTable({ sources, selectedSourceId, onSelect }: { sources: SourceS
             <th>Title</th>
             <th>Type</th>
             <th>Status</th>
-            <th>Tags</th>
+            <th>Human tags</th>
+            <th>AI tags</th>
             <th>Comments</th>
           </tr>
         </thead>
@@ -520,6 +552,13 @@ function SourceTable({ sources, selectedSourceId, onSelect }: { sources: SourceS
               <td>{source.type}</td>
               <td><span className={`status ${source.lifecycle_status}`}>{source.lifecycle_status}</span></td>
               <td>{source.human_tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</td>
+              <td>
+                {source.ai_generated_tags.length > 0 ? (
+                  source.ai_generated_tags.map((tag) => <span className="tag ai-tag" key={tag}>{tag}</span>)
+                ) : (
+                  <span className="muted">None</span>
+                )}
+              </td>
               <td>{source.comment_count}</td>
             </tr>
           ))}

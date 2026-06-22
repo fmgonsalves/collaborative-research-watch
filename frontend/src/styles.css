@@ -227,22 +227,26 @@ th {
 }
 
 th:nth-child(1) {
-  width: 47%;
+  width: 34%;
 }
 
 th:nth-child(2) {
-  width: 14%;
+  width: 11%;
 }
 
 th:nth-child(3) {
-  width: 14%;
-}
-
-th:nth-child(4) {
   width: 13%;
 }
 
+th:nth-child(4) {
+  width: 15%;
+}
+
 th:nth-child(5) {
+  width: 15%;
+}
+
+th:nth-child(6) {
   width: 12%;
 }
 
@@ -263,7 +267,7 @@ td span {
 
 td:nth-child(2),
 td:nth-child(3),
-td:nth-child(5) {
+td:nth-child(6) {
   white-space: nowrap;
 }
 
