@@ -7,7 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, HttpUrl
 
 
-SUPPORTED_DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".csv"}
+SUPPORTED_DOCUMENT_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".csv"} #TODO: add this to the Readme
 
 
 def utc_now() -> str:
@@ -24,14 +24,14 @@ class UserRecord(BaseModel):
     name: str
     email: str
 
-
+#TODO: not a very good way of modeling this - too many optionals here. Maybe break down into generic SourceRecord and implementations for filesystem docs and links
 class SourceRecord(BaseModel):
     source_id: str
     type: Literal["document", "link"]
     title: str
-    lifecycle_status: str = "available"
+    lifecycle_status: str = "available" #TODO: check if lifecycle status can take other values now or in the future; either remove the property or use an enumerated or Literal to represent possible values
     date_added: str
-    last_seen_at: str
+    last_seen_at: str #TODO: not required, remove
     updated_at: str
     relative_path: str | None = None
     original_url: str | None = None
@@ -148,7 +148,7 @@ class TagSuggestion(BaseModel):
     tag: str
     count: int
 
-
+# TODO: is this the right place to have this function
 def display_title_for_path(path: Path) -> str:
     title = path.stem.replace("_", " ").replace("-", " ").strip()
     return title.title() if title else path.name

@@ -226,6 +226,7 @@ function App() {
 
       <section className="main-grid">
         <div className="browse-pane">
+          <h2>Sources</h2>
           <div className="filters">
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search sources, tags, comments" />
             <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Type filter">
