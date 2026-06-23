@@ -29,6 +29,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Keep human tag filtering and AI-generated tag filtering separate; `tag` remains human-only and `ai_tag` matches only AI-generated tags.
 - Keep source lifecycle status and AI record status filtering separate; `status` remains source lifecycle and `ai_status` matches AI enrichment status.
 - Display AI-generated tags in their own browse-table column with distinct styling from human-created tags.
+- Extract DOCX paragraph text with `python-docx`; empty or malformed DOCX files return safe extraction failures with parser details kept in internal diagnostics only.
 
 ## Build Steps
 
@@ -41,7 +42,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - [completed] Step 7: Source detail UI.
 - [completed] Step 8: Real model adapter.
 - [completed] Step 9: Browse/search/filter over AI fields.
-- [pending] Step 10: DOCX extractor.
+- [completed] Step 10: DOCX extractor.
 - [pending] Step 11: Link fetching and HTML extraction.
 
 ## Built Or Changed
@@ -81,6 +82,11 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added `/api/ai-tags` for AI-generated tag suggestions and counts, separate from human tag suggestions.
 - Added frontend browse filters for AI-generated tags and AI status.
 - Added a separate AI tags column in the browse table with distinct AI tag styling.
+- Added `python-docx` as a backend dependency through `uv sync`.
+- Added backend DOCX extraction through the existing extraction boundary using `python-docx`.
+- Added safe DOCX failures for malformed DOCX files and DOCX files with no readable paragraph text.
+- Kept DOCX parser diagnostics separate from extracted text, AI-safe input, and AI records.
+- Proved mocked `.docx` enrichment writes generated AI records with the `python-docx` extractor.
 
 ## Automated Tests Added And Passing
 
@@ -112,10 +118,14 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Reran targeted API tests after Step 9 browse/search/filter: 24 passed, 1 warning.
 - Reran backend tests after Step 9 browse/search/filter: 67 passed, 1 warning.
 - Reran frontend build after Step 9 browse/search/filter: passed.
+- Added backend extractor tests for DOCX paragraph extraction, empty DOCX safe failure, malformed DOCX safe failure, and DOCX diagnostics isolation.
+- Added backend API test proving mocked `.docx` enrichment sends only expected extracted source text and writes a generated AI record.
+- Reran targeted extractor tests after Step 10 DOCX extraction: 16 passed.
+- Reran targeted DOCX API enrichment test after Step 10 DOCX extraction: 1 passed, 1 warning.
+- Reran backend tests after Step 10 DOCX extraction: 72 passed, 1 warning.
 
 ## Automated Test Scope Remaining
 
-- DOCX extraction tests are deferred until after the first end-to-end enrichment pass is proven.
 - Link fetching and HTML extraction tests are deferred until after the first document-based enrichment pass is proven.
 
 ## Manual/User Test Scope Remaining
@@ -126,6 +136,5 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 
 - AI records are exposed through source-detail and browse/search/filter surfaces, but source removal still does not cascade AI records.
 - User-visible malformed-AI-record diagnostics are deferred until the frontend has an AI section or broader diagnostics surface; Step 2 logs invalid records.
-- DOCX extraction is intentionally deferred until after the first end-to-end enrichment pass.
 - Link fetching and HTML extraction are intentionally deferred until after the first document-based enrichment pass; link enrichment returns `409` in the meantime.
 - Chunking and token budgeting beyond the 30,000-character Step 8 cap do not exist yet.

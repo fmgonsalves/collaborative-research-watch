@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from docx import Document
 from pypdf import PdfReader
 
 from .models import ExtractedSourceText, ExtractionResult, SourceRecord
@@ -31,6 +32,8 @@ def extract_document_text(source: SourceRecord, path: Path) -> ExtractionResult:
     if source.type != "document":
         return extraction_failure(source.source_id, "Only local document sources can be extracted.")
     extension = path.suffix.lower()
+    if extension == ".docx":
+        return extract_docx_file(source, path)
     if extension == ".pdf":
         return extract_pdf_file(source, path)
     return extract_simple_text_file(source, path)
@@ -66,3 +69,17 @@ def extract_pdf_file(source: SourceRecord, path: Path) -> ExtractionResult:
     if not content_text:
         return extraction_failure(source.source_id, "No readable text found in PDF.", extractor="pypdf")
     return extraction_success(source.source_id, content_text, extractor="pypdf")
+
+
+def extract_docx_file(source: SourceRecord, path: Path) -> ExtractionResult:
+    if source.type != "document":
+        return extraction_failure(source.source_id, "Only local document sources can be extracted.", extractor="python-docx")
+    try:
+        document = Document(path)
+        paragraph_texts = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
+    except Exception as error:
+        return extraction_failure(source.source_id, "Could not extract text from DOCX.", repr(error), extractor="python-docx")
+    content_text = "\n\n".join(paragraph_texts)
+    if not content_text:
+        return extraction_failure(source.source_id, "No readable text found in DOCX.", extractor="python-docx")
+    return extraction_success(source.source_id, content_text, extractor="python-docx")

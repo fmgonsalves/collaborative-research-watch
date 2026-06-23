@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from docx import Document
+
 from research_watch.ai_input import build_ai_safe_source_input
 from research_watch.extractors import extract_document_text, extract_simple_text_file
 from research_watch.models import SourceRecord
@@ -68,6 +70,13 @@ def pdf_bytes(page_texts: list[str]) -> bytes:
 
 def write_pdf(path: Path, page_texts: list[str]) -> None:
     path.write_bytes(pdf_bytes(page_texts))
+
+
+def write_docx(path: Path, paragraph_texts: list[str]) -> None:
+    document = Document()
+    for text in paragraph_texts:
+        document.add_paragraph(text)
+    document.save(path)
 
 
 def test_txt_extraction_returns_raw_decoded_text(tmp_path: Path) -> None:
@@ -213,6 +222,64 @@ def test_pdf_diagnostics_do_not_enter_extracted_text_or_ai_safe_input(tmp_path: 
     failure = extract_document_text(source, broken_path)
     fallback_path = tmp_path / "fallback.pdf"
     write_pdf(fallback_path, ["Allowed PDF text"])
+    fallback = extract_document_text(source, fallback_path)
+
+    assert failure.extracted is None
+    assert failure.diagnostics is not None
+    assert fallback.extracted is not None
+    payload_json = build_ai_safe_source_input(source, fallback.extracted).model_dump_json()
+    assert failure.diagnostics not in payload_json
+    assert failure.error_summary not in payload_json
+
+
+def test_docx_extraction_returns_paragraph_text(tmp_path: Path) -> None:
+    path = tmp_path / "brief.docx"
+    write_docx(path, ["First DOCX paragraph", "", "Second DOCX paragraph"])
+    source = source_record(relative_path="sources/brief.docx")
+
+    result = extract_document_text(source, path)
+
+    assert result.error_summary is None
+    assert result.diagnostics is None
+    assert result.extractor == "python-docx"
+    assert result.extracted is not None
+    assert result.extracted.content_text == "First DOCX paragraph\n\nSecond DOCX paragraph"
+
+
+def test_empty_docx_returns_safe_extraction_failure(tmp_path: Path) -> None:
+    path = tmp_path / "empty.docx"
+    write_docx(path, ["", "   "])
+    source = source_record(relative_path="sources/empty.docx")
+
+    result = extract_document_text(source, path)
+
+    assert result.extracted is None
+    assert result.error_summary == "No readable text found in DOCX."
+    assert result.diagnostics is None
+    assert result.extractor == "python-docx"
+
+
+def test_malformed_docx_returns_safe_failure_with_internal_diagnostics(tmp_path: Path) -> None:
+    path = tmp_path / "broken.docx"
+    path.write_bytes(b"not-a-real-docx")
+    source = source_record(relative_path="sources/broken.docx")
+
+    result = extract_document_text(source, path)
+
+    assert result.extracted is None
+    assert result.error_summary == "Could not extract text from DOCX."
+    assert result.diagnostics is not None
+    assert result.extractor == "python-docx"
+
+
+def test_docx_diagnostics_do_not_enter_extracted_text_or_ai_safe_input(tmp_path: Path) -> None:
+    broken_path = tmp_path / "broken.docx"
+    broken_path.write_bytes(b"not-a-real-docx")
+    source = source_record(relative_path="sources/broken.docx")
+
+    failure = extract_document_text(source, broken_path)
+    fallback_path = tmp_path / "fallback.docx"
+    write_docx(fallback_path, ["Allowed DOCX text"])
     fallback = extract_document_text(source, fallback_path)
 
     assert failure.extracted is None

@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 import pytest
+from docx import Document
 from fastapi.testclient import TestClient
 
 from research_watch.ai_generation import AIGenerationError, AIGenerationOutput
@@ -24,6 +25,17 @@ def client_for(tmp_path: Path) -> TestClient:
 def unselected_client() -> TestClient:
     workspace.current_path = None
     return TestClient(app)
+
+
+def docx_bytes(paragraph_texts: list[str]) -> bytes:
+    from io import BytesIO
+
+    document = Document()
+    for text in paragraph_texts:
+        document.add_paragraph(text)
+    buffer = BytesIO()
+    document.save(buffer)
+    return buffer.getvalue()
 
 
 def test_bootstrap_upload_link_sync_and_detail_flow(tmp_path: Path) -> None:
@@ -523,6 +535,44 @@ def test_enrich_document_source_writes_generated_ai_record_and_detail_loads_it(t
     assert ai_record.extractor == "simple-text"
     assert ai_record.model == "test-model"
     assert detail_response.json()["ai"] == response.json()
+
+
+def test_enrich_docx_document_source_writes_generated_ai_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_generator(source_input: AISafeSourceInput) -> AIGenerationOutput:
+        assert source_input.filename == "brief.docx"
+        assert source_input.content_text == "First DOCX paragraph\n\nSecond DOCX paragraph"
+        return AIGenerationOutput(
+            summary="Mocked DOCX summary.",
+            ai_generated_tags=["docx", "research", "document"],
+            model="test-model",
+        )
+
+    monkeypatch.setattr("research_watch.sync.generate_with_openai", fake_generator)
+    client = client_for(tmp_path)
+    upload_response = client.post(
+        "/api/sources/upload",
+        files={
+            "files": (
+                "brief.docx",
+                docx_bytes(["First DOCX paragraph", "", "Second DOCX paragraph"]),
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+    )
+    assert upload_response.status_code == 200
+    source = client.get("/api/sources").json()[0]
+
+    response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+    ai_record, issues = read_ai_record(tmp_path, source["source_id"])
+
+    assert response.status_code == 200
+    assert issues == []
+    assert ai_record is not None
+    assert ai_record.status == "generated"
+    assert ai_record.summary == "Mocked DOCX summary."
+    assert ai_record.ai_generated_tags == ["docx", "research", "document"]
+    assert ai_record.extractor == "python-docx"
+    assert ai_record.model == "test-model"
 
 
 def test_enrich_document_extraction_failure_writes_safe_failure_record(tmp_path: Path) -> None:
