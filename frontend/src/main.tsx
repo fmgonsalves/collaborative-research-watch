@@ -143,7 +143,7 @@ function App() {
         .then(setDetail)
         .catch(() => setDetail(null));
     }
-  }, [selectedSourceId, sources]);
+  }, [selectedSourceId]);
 
   const runAction = async (action: () => Promise<void>, success: string) => {
     setBusy(true);

@@ -42,13 +42,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 workspace = WorkspaceManager()
+_active_repository: ResearchRepository | None = None
+_active_repository_root: Path | None = None
+
+
+def reset_repository() -> None:
+    global _active_repository, _active_repository_root
+    _active_repository = None
+    _active_repository_root = None
 
 
 def repo() -> ResearchRepository:
     try:
-        return ResearchRepository(workspace.require())
+        root = workspace.require()
     except RuntimeError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    global _active_repository, _active_repository_root
+    if _active_repository is None or _active_repository_root != root:
+        _active_repository = ResearchRepository(root)
+        _active_repository_root = root
+    return _active_repository
 
 
 def require_workspace_path() -> Path:
@@ -67,6 +80,7 @@ def require_source(repository: ResearchRepository, source_id: str) -> SourceDeta
 
 @app.post("/api/workspace/select", response_model=WorkspaceState)
 def select_workspace(request: WorkspaceSelectRequest) -> WorkspaceState:
+    reset_repository()
     return workspace.select(request.path)
 
 

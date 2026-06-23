@@ -4,6 +4,7 @@ import logging
 import time
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
@@ -82,9 +83,65 @@ def sync_source_event(record: SourceRecord) -> SyncSourceEvent:
     )
 
 
+@dataclass(frozen=True)
+class IntakeSnapshot:
+    links_mtime_ns: int
+    links_size: int
+    sources_dir_mtime_ns: int
+    document_stats: tuple[tuple[str, int, float], ...]
+
+
 class ResearchRepository:
     def __init__(self, root: Path) -> None:
         self.root = root
+        self._source_records_cache: tuple[list[SourceRecord], list[ValidationIssue]] | None = None
+        self._comments_cache: tuple[list[CommentRecord], list[ValidationIssue]] | None = None
+        self._tags_cache: tuple[list[HumanTagRecord], list[ValidationIssue]] | None = None
+        self._intake_snapshot: IntakeSnapshot | None = None
+
+    def invalidate_read_cache(self) -> None:
+        self._source_records_cache = None
+        self._comments_cache = None
+        self._tags_cache = None
+
+    def invalidate_intake_snapshot(self) -> None:
+        self._intake_snapshot = None
+
+    def _capture_intake_snapshot(self, by_path: dict[str, SourceRecord], links_path: Path) -> IntakeSnapshot:
+        links_stat = links_path.stat()
+        sources_stat = self.sources_dir.stat()
+        document_stats: list[tuple[str, int, float]] = []
+        for relative_path in sorted(by_path):
+            path = self.root / relative_path
+            if path.is_file():
+                size, mtime = file_content_snapshot(path)
+                document_stats.append((relative_path, size, mtime))
+        return IntakeSnapshot(
+            links_mtime_ns=links_stat.st_mtime_ns,
+            links_size=links_stat.st_size,
+            sources_dir_mtime_ns=sources_stat.st_mtime_ns,
+            document_stats=tuple(document_stats),
+        )
+
+    def _intake_unchanged(self, snapshot: IntakeSnapshot, by_path: dict[str, SourceRecord], links_path: Path) -> bool:
+        try:
+            links_stat = links_path.stat()
+            sources_stat = self.sources_dir.stat()
+        except OSError:
+            return False
+        if (links_stat.st_mtime_ns, links_stat.st_size) != (snapshot.links_mtime_ns, snapshot.links_size):
+            return False
+        if sources_stat.st_mtime_ns != snapshot.sources_dir_mtime_ns:
+            return False
+        expected_paths = {item[0] for item in snapshot.document_stats}
+        if set(by_path.keys()) != expected_paths:
+            return False
+        expected_stats = {item[0]: (item[1], item[2]) for item in snapshot.document_stats}
+        for relative_path, expected in expected_stats.items():
+            path = self.root / relative_path
+            if not path.is_file() or file_content_snapshot(path) != expected:
+                return False
+        return True
 
     @property
     def sources_dir(self) -> Path:
@@ -103,6 +160,8 @@ class ResearchRepository:
         return self.root / "records" / "human-tags"
 
     def read_source_records(self) -> tuple[list[SourceRecord], list[ValidationIssue]]:
+        if self._source_records_cache is not None:
+            return self._source_records_cache
         records: list[SourceRecord] = []
         issues: list[ValidationIssue] = []
         for path in sorted(self.source_records_dir.glob("src_*.md")):
@@ -117,9 +176,10 @@ class ResearchRepository:
                         path=str(path),
                     )
                 )
+        self._source_records_cache = (records, issues)
         return records, issues
 
-    def write_source_record(self, record: SourceRecord) -> None:
+    def write_source_record(self, record: SourceRecord, *, invalidate_cache: bool = True) -> None:
         body_lines = [f"# {record.title}", "", f"- Type: {record.type}", f"- Status: {record.lifecycle_status}"]
         if record.relative_path:
             body_lines.append(f"- Path: {record.relative_path}")
@@ -130,13 +190,19 @@ class ResearchRepository:
             record.model_dump(exclude_none=True),
             "\n".join(body_lines),
         )
+        if invalidate_cache:
+            self.invalidate_read_cache()
+            self.invalidate_intake_snapshot()
 
-    def delete_source_record(self, record: SourceRecord) -> None:
+    def delete_source_record(self, record: SourceRecord, *, invalidate_cache: bool = True) -> None:
         path = self.source_records_dir / f"{record.source_id}.md"
         if path.exists():
             path.unlink()
+        if invalidate_cache:
+            self.invalidate_read_cache()
+            self.invalidate_intake_snapshot()
 
-    def delete_collaboration_for_source(self, source_id_value: str) -> tuple[int, int]:
+    def delete_collaboration_for_source(self, source_id_value: str, *, invalidate_cache: bool = True) -> tuple[int, int]:
         comments_removed = 0
         for path in self.comments_dir.glob("comment_*.md"):
             frontmatter, _ = read_markdown_record(path)
@@ -149,9 +215,14 @@ class ResearchRepository:
             if frontmatter.get("source_id") == source_id_value:
                 path.unlink()
                 tags_removed += 1
+        if invalidate_cache:
+            self.invalidate_read_cache()
+            self.invalidate_intake_snapshot()
         return comments_removed, tags_removed
 
     def read_comments(self) -> tuple[list[CommentRecord], list[ValidationIssue]]:
+        if self._comments_cache is not None:
+            return self._comments_cache
         comments: list[CommentRecord] = []
         issues: list[ValidationIssue] = []
         for path in sorted(self.comments_dir.glob("comment_*.md")):
@@ -160,9 +231,12 @@ class ResearchRepository:
                 comments.append(CommentRecord.model_validate({**frontmatter, "body": body.strip()}))
             except ValidationError as error:
                 issues.append(ValidationIssue(code="invalid_comment_record", message=str(error), path=str(path)))
+        self._comments_cache = (comments, issues)
         return comments, issues
 
     def read_tags(self) -> tuple[list[HumanTagRecord], list[ValidationIssue]]:
+        if self._tags_cache is not None:
+            return self._tags_cache
         tags: list[HumanTagRecord] = []
         issues: list[ValidationIssue] = []
         for path in sorted(self.tags_dir.glob("tag_*.md")):
@@ -171,6 +245,7 @@ class ResearchRepository:
                 tags.append(HumanTagRecord.model_validate(frontmatter))
             except ValidationError as error:
                 issues.append(ValidationIssue(code="invalid_tag_record", message=str(error), path=str(path)))
+        self._tags_cache = (tags, issues)
         return tags, issues
 
     def list_tag_suggestions(self, q: str = "", limit: int = 50) -> list[TagSuggestion]:
@@ -194,7 +269,9 @@ class ResearchRepository:
         now = utc_now()
         load_started = time.perf_counter()
         existing, record_issues = self.read_source_records()
-        logger.info("Loaded %d existing source records (%dms)", len(existing), elapsed_ms(load_started))
+        load_elapsed_ms = elapsed_ms(load_started)
+        logger.info("Loaded %d existing source records (%dms)", len(existing), load_elapsed_ms)
+        current_by_id = {record.source_id: record for record in existing}
         by_path = {record.relative_path: record for record in existing if record.type == "document" and record.relative_path}
         by_url = {
             normalize_url(record.original_url): record
@@ -203,14 +280,49 @@ class ResearchRepository:
         }
         seen_ids: set[str] = set()
         report = SyncReport(workspace_path=str(self.root), sources_total=0, issues=record_issues)
+        links_path = self.root / "links.csv"
+        snapshot = self._intake_snapshot
+        collaboration_cache_warm = self._comments_cache is not None and self._tags_cache is not None
+        if snapshot and collaboration_cache_warm and self._intake_unchanged(snapshot, by_path, links_path):
+            all_records = list(current_by_id.values())
+            self._source_records_cache = (all_records, record_issues)
+            report.sources_total = len(all_records)
+            total_elapsed_ms = elapsed_ms(sync_started)
+            logger.info("Sync fast path: intake unchanged (%dms) total=%d", total_elapsed_ms, report.sources_total)
+            return report
 
         self.sources_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Scanning sources/")
         documents_started = time.perf_counter()
+        processed_document_paths: set[str] = set()
+        for relative_path, record in sorted(by_path.items()):
+            path = self.root / relative_path
+            if not path.is_file():
+                continue
+            processed_document_paths.add(relative_path)
+            file_size, file_mtime = file_content_snapshot(path)
+            record.last_seen_at = now
+            if document_content_changed(record, file_size, file_mtime):
+                logger.info("Document %s (%s) changed (size/mtime)", relative_path, format_bytes(file_size))
+                record.lifecycle_status = "changed"
+                record.updated_at = now
+                record.content_size = file_size
+                record.content_mtime = file_mtime
+                report.changed += 1
+                report.changed_sources.append(sync_source_event(record))
+                self.write_source_record(record, invalidate_cache=False)
+            else:
+                logger.info("Document %s (%s) unchanged (size/mtime)", relative_path, format_bytes(file_size))
+                record.content_size = file_size
+                record.content_mtime = file_mtime
+            seen_ids.add(record.source_id)
+            current_by_id[record.source_id] = record
         for path in sorted(self.sources_dir.rglob("*")):
             if not path.is_file() or any(part.startswith(".") for part in path.relative_to(self.sources_dir).parts):
                 continue
             relative_path = path.relative_to(self.root).as_posix()
+            if relative_path in processed_document_paths:
+                continue
             if path.suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS:
                 report.invalid += 1
                 logger.info("Document %s unsupported extension: %s", relative_path, path.suffix or "(none)")
@@ -223,40 +335,30 @@ class ResearchRepository:
                 )
                 continue
             file_size, file_mtime = file_content_snapshot(path)
-            record = by_path.get(relative_path)
-            if record is None:
-                logger.info("Document %s (%s) new", relative_path, format_bytes(file_size))
-                record = SourceRecord(
-                    source_id=source_id(),
-                    type="document",
-                    title=display_title_for_path(path),
-                    relative_path=relative_path,
-                    content_size=file_size,
-                    content_mtime=file_mtime,
-                    date_added=now,
-                    last_seen_at=now,
-                    updated_at=now,
-                    lifecycle_status="available",
-                )
-                report.created += 1
-                report.created_sources.append(sync_source_event(record))
-            else:
-                record.last_seen_at = now
-                record.updated_at = now
-                if document_content_changed(record, file_size, file_mtime):
-                    logger.info("Document %s (%s) changed (size/mtime)", relative_path, format_bytes(file_size))
-                    record.lifecycle_status = "changed"
-                    report.changed += 1
-                    report.changed_sources.append(sync_source_event(record))
-                else:
-                    logger.info("Document %s (%s) unchanged (size/mtime)", relative_path, format_bytes(file_size))
-                record.content_size = file_size
-                record.content_mtime = file_mtime
+            if by_path.get(relative_path) is not None:
+                continue
+            logger.info("Document %s (%s) new", relative_path, format_bytes(file_size))
+            record = SourceRecord(
+                source_id=source_id(),
+                type="document",
+                title=display_title_for_path(path),
+                relative_path=relative_path,
+                content_size=file_size,
+                content_mtime=file_mtime,
+                date_added=now,
+                last_seen_at=now,
+                updated_at=now,
+                lifecycle_status="available",
+            )
+            report.created += 1
+            report.created_sources.append(sync_source_event(record))
+            self.write_source_record(record, invalidate_cache=False)
             seen_ids.add(record.source_id)
-            self.write_source_record(record)
+            current_by_id[record.source_id] = record
+        documents_elapsed_ms = elapsed_ms(documents_started)
         logger.info(
             "Documents processed in %dms created=%d changed=%d updated=%d invalid=%d",
-            elapsed_ms(documents_started),
+            documents_elapsed_ms,
             report.created,
             report.changed,
             report.updated,
@@ -264,7 +366,7 @@ class ResearchRepository:
         )
 
         links_started = time.perf_counter()
-        links, link_issues = read_links(self.root / "links.csv")
+        links, link_issues = read_links(links_path)
         report.issues.extend(link_issues)
         logger.info("Processing %d links", len(links))
         seen_urls: set[str] = set()
@@ -292,16 +394,19 @@ class ResearchRepository:
                 )
                 report.created += 1
                 report.created_sources.append(sync_source_event(record))
+                self.write_source_record(record, invalidate_cache=False)
             else:
                 record.last_seen_at = now
-                record.updated_at = now
                 if row["title"] and row["title"] != record.title:
                     record.title = row["title"]
+                    record.updated_at = now
                     report.updated += 1
                     report.updated_sources.append(sync_source_event(record))
+                    self.write_source_record(record, invalidate_cache=False)
             seen_ids.add(record.source_id)
-            self.write_source_record(record)
-        logger.info("Links processed in %dms", elapsed_ms(links_started))
+            current_by_id[record.source_id] = record
+        links_elapsed_ms = elapsed_ms(links_started)
+        logger.info("Links processed in %dms", links_elapsed_ms)
 
         removal_started = time.perf_counter()
         for record in existing:
@@ -309,11 +414,12 @@ class ResearchRepository:
                 continue
             event = sync_source_event(record)
             report.removed_sources.append(event)
-            comments_removed, tags_removed = self.delete_collaboration_for_source(record.source_id)
+            comments_removed, tags_removed = self.delete_collaboration_for_source(record.source_id, invalidate_cache=False)
             report.removed_comments += comments_removed
             report.removed_tags += tags_removed
-            self.delete_source_record(record)
+            self.delete_source_record(record, invalidate_cache=False)
             report.removed += 1
+            current_by_id.pop(record.source_id, None)
             logger.info(
                 "Removed source %s (%s) cascade: %d comments, %d tags",
                 record.source_id,
@@ -321,24 +427,39 @@ class ResearchRepository:
                 comments_removed,
                 tags_removed,
             )
+        removal_elapsed_ms = elapsed_ms(removal_started)
+        if report.removed_comments or report.removed_tags:
+            self._comments_cache = None
+            self._tags_cache = None
         logger.info(
             "Removed %d sources (%dms) cascade: %d comments, %d tags",
             report.removed,
-            elapsed_ms(removal_started),
+            removal_elapsed_ms,
             report.removed_comments,
             report.removed_tags,
         )
 
         users, user_issues = read_users(self.root / "users.csv")
         report.issues.extend(user_issues)
-        logger.info("Reloading source records before index write")
-        all_records, source_issues = self.read_source_records()
-        report.issues.extend(source_issues)
-        self.write_index(all_records, users)
+        all_records = list(current_by_id.values())
+        intake_changed = report.created + report.changed + report.updated + report.removed + report.invalid > 0
+        collaboration_cache_cold = self._comments_cache is None or self._tags_cache is None
+        if intake_changed or collaboration_cache_cold:
+            self.write_index(all_records, users)
+        else:
+            logger.info("Skipping index.md regeneration; intake and collaboration unchanged")
+        self._source_records_cache = (all_records, record_issues)
         report.sources_total = len(all_records)
+        final_by_path = {
+            record.relative_path: record
+            for record in all_records
+            if record.type == "document" and record.relative_path
+        }
+        self._intake_snapshot = self._capture_intake_snapshot(final_by_path, links_path)
+        total_elapsed_ms = elapsed_ms(sync_started)
         logger.info(
             "Sync finished in %dms created=%d changed=%d updated=%d removed=%d invalid=%d total=%d",
-            elapsed_ms(sync_started),
+            total_elapsed_ms,
             report.created,
             report.changed,
             report.updated,
@@ -473,6 +594,7 @@ class ResearchRepository:
             record.model_dump(exclude={"body"}),
             record.body,
         )
+        self._comments_cache = None
         self.sync()
         return record
 
@@ -493,5 +615,6 @@ class ResearchRepository:
                 updated_at=now,
             )
         write_markdown_record(self.tags_dir / f"{record.tag_id}.md", record.model_dump(), "")
+        self._tags_cache = None
         self.sync()
         return record
