@@ -13,11 +13,12 @@ from .ai_generation import AIConfigurationError, AIGenerationError, AIGenerator,
 from .ai_input import build_ai_safe_source_input
 from .ai_store import read_ai_record, read_ai_records, write_ai_record
 from .csv_store import read_links, read_users
-from .extractors import extract_document_text
+from .extractors import extract_document_text, fetch_link_text
 from .markdown_store import read_markdown_record, write_markdown_record
 from .models import (
     AIRecord,
     CommentRecord,
+    ExtractionResult,
     HumanTagRecord,
     SUPPORTED_DOCUMENT_EXTENSIONS,
     SourceDetail,
@@ -541,7 +542,6 @@ class ResearchRepository:
         return source_path
 
     def enrich_document_source(self, record: SourceRecord, generator: AIGenerator | None = None) -> SourceAIEnrichment:
-        active_generator = generator or generate_with_openai
         now = utc_now()
         path = self.source_document_path_for_enrichment(record)
         if path is None:
@@ -571,6 +571,40 @@ class ResearchRepository:
             write_ai_record(self.root, ai_record)
             return source_ai_enrichment(ai_record)
 
+        return self.enrich_extracted_source(record, extraction, now, generator=generator)
+
+    def enrich_link_source(self, record: SourceRecord, generator: AIGenerator | None = None) -> SourceAIEnrichment:
+        now = utc_now()
+        extraction = fetch_link_text(record)
+        if extraction.extracted is None:
+            ai_record = AIRecord(
+                source_id=record.source_id,
+                status="fetch_failed",
+                generated_at=now,
+                source_title=record.title,
+                source_type=record.type,
+                error_summary=extraction.error_summary or "Could not fetch readable link content.",
+                extractor=extraction.extractor,
+            )
+            write_ai_record(self.root, ai_record)
+            return source_ai_enrichment(ai_record)
+        return self.enrich_extracted_source(record, extraction, now, generator=generator)
+
+    def enrich_source(self, record: SourceRecord, generator: AIGenerator | None = None) -> SourceAIEnrichment:
+        if record.type == "link":
+            return self.enrich_link_source(record, generator=generator)
+        return self.enrich_document_source(record, generator=generator)
+
+    def enrich_extracted_source(
+        self,
+        record: SourceRecord,
+        extraction: ExtractionResult,
+        now: str,
+        generator: AIGenerator | None = None,
+    ) -> SourceAIEnrichment:
+        if extraction.extracted is None:
+            raise ValueError("Cannot enrich source without extracted text.")
+        active_generator = generator or generate_with_openai
         source_input = build_ai_safe_source_input(record, extraction.extracted)
         existing_ai_record, _ = read_ai_record(self.root, record.source_id)
         try:

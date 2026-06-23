@@ -868,7 +868,6 @@ function AIEnrichmentSection({
   runAction: (action: () => Promise<void>, success: string) => Promise<void>;
   onChanged: () => Promise<void>;
 }) {
-  const isDocument = detail.type === "document";
   const ai = detail.ai;
   const generatedAt = ai ? new Date(ai.generated_at).toLocaleString() : "";
   return (
@@ -880,7 +879,7 @@ function AIEnrichmentSection({
         </div>
         <button
           className="secondary"
-          disabled={busy || !isDocument}
+          disabled={busy}
           onClick={() =>
             runAction(async () => {
               await api<SourceAIEnrichment>(`/api/sources/${detail.source_id}/ai/enrich`, { method: "POST", body: "{}" });
@@ -891,7 +890,6 @@ function AIEnrichmentSection({
           Generate AI
         </button>
       </div>
-      {!isDocument && <p className="muted">Link enrichment is unavailable until link fetching is implemented.</p>}
       {ai && (
         <div className="ai-output">
           <div>

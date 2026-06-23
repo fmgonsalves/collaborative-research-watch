@@ -30,6 +30,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Keep source lifecycle status and AI record status filtering separate; `status` remains source lifecycle and `ai_status` matches AI enrichment status.
 - Display AI-generated tags in their own browse-table column with distinct styling from human-created tags.
 - Extract DOCX paragraph text with `python-docx`; empty or malformed DOCX files return safe extraction failures with parser details kept in internal diagnostics only.
+- Fetch public link HTML manually with `httpx` and extract conservative readable text with BeautifulSoup; blocked, inaccessible, non-HTML, or failed links write safe `fetch_failed` AI records.
 
 ## Build Steps
 
@@ -43,7 +44,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - [completed] Step 8: Real model adapter.
 - [completed] Step 9: Browse/search/filter over AI fields.
 - [completed] Step 10: DOCX extractor.
-- [pending] Step 11: Link fetching and HTML extraction.
+- [completed] Step 11: Link fetching and HTML extraction.
 
 ## Built Or Changed
 
@@ -87,6 +88,12 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added safe DOCX failures for malformed DOCX files and DOCX files with no readable paragraph text.
 - Kept DOCX parser diagnostics separate from extracted text, AI-safe input, and AI records.
 - Proved mocked `.docx` enrichment writes generated AI records with the `python-docx` extractor.
+- Promoted `httpx` to a backend runtime dependency and added `beautifulsoup4` for link HTML extraction.
+- Added backend link fetching through the existing extraction result boundary using manual HTTP(S) fetches with timeout and redirect following.
+- Added conservative HTML visible-text extraction that removes scripts, styles, metadata, and page chrome before normalizing readable text.
+- Added safe `fetch_failed` AI record writing for blocked, inaccessible, non-HTML, failed, or unreadable link fetches.
+- Wired link enrichment through the existing AI-safe input and generation boundary so source ID, source type, title, original URL, and fetched text are the only model-visible link fields.
+- Enabled the existing source-detail `Generate AI` action for link sources and removed the previous link-unavailable UI message.
 
 ## Automated Tests Added And Passing
 
@@ -123,10 +130,16 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Reran targeted extractor tests after Step 10 DOCX extraction: 16 passed.
 - Reran targeted DOCX API enrichment test after Step 10 DOCX extraction: 1 passed, 1 warning.
 - Reran backend tests after Step 10 DOCX extraction: 72 passed, 1 warning.
+- Added backend extractor tests for simple HTML extraction, non-HTML fetch failure, timeout failure, blocked-status failure, and link diagnostics isolation.
+- Added backend API tests proving link enrichment no longer returns `409`, mocked successful link enrichment writes generated AI records without team-confidential data, fetch failures write safe `fetch_failed` records, and manual sync still does not enrich.
+- Reran targeted extractor tests after Step 11 link fetching: 21 passed.
+- Reran targeted link/manual-sync API tests after Step 11 link fetching: 3 passed, 1 warning.
+- Reran backend tests after Step 11 link fetching: 78 passed, 1 warning.
+- Reran frontend build after Step 11 link fetching: passed.
 
 ## Automated Test Scope Remaining
 
-- Link fetching and HTML extraction tests are deferred until after the first document-based enrichment pass is proven.
+- No remaining automated Path 2 build-order test scope is currently deferred.
 
 ## Manual/User Test Scope Remaining
 
@@ -136,5 +149,5 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 
 - AI records are exposed through source-detail and browse/search/filter surfaces, but source removal still does not cascade AI records.
 - User-visible malformed-AI-record diagnostics are deferred until the frontend has an AI section or broader diagnostics surface; Step 2 logs invalid records.
-- Link fetching and HTML extraction are intentionally deferred until after the first document-based enrichment pass; link enrichment returns `409` in the meantime.
+- Link fetching is a conservative first pass and does not include readability scoring, paywall bypassing, JavaScript rendering, authentication, or richer article extraction.
 - Chunking and token budgeting beyond the 30,000-character Step 8 cap do not exist yet.

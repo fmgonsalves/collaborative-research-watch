@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import httpx
 from docx import Document
 
 from research_watch.ai_input import build_ai_safe_source_input
-from research_watch.extractors import extract_document_text, extract_simple_text_file
+from research_watch.extractors import extract_document_text, extract_simple_text_file, fetch_link_text
 from research_watch.models import SourceRecord
 
 
@@ -33,6 +34,25 @@ def assert_extracted_text(path: Path, expected: str) -> None:
     assert result.extracted is not None
     assert result.extracted.source_id == source.source_id
     assert result.extracted.content_text == expected
+
+
+def link_record(**overrides: object) -> SourceRecord:
+    values: dict[str, object] = {
+        "source_id": "src_link123",
+        "type": "link",
+        "title": "Example Link",
+        "original_url": "https://example.com/research",
+        "lifecycle_status": "available",
+        "date_added": "2026-06-15T12:00:00+00:00",
+        "last_seen_at": "2026-06-15T12:00:00+00:00",
+        "updated_at": "2026-06-15T12:00:00+00:00",
+    }
+    values.update(overrides)
+    return SourceRecord.model_validate(values)
+
+
+def mock_client(handler: httpx.MockTransport | httpx.BaseTransport) -> httpx.Client:
+    return httpx.Client(transport=handler)
 
 
 def pdf_bytes(page_texts: list[str]) -> bytes:
@@ -281,6 +301,95 @@ def test_docx_diagnostics_do_not_enter_extracted_text_or_ai_safe_input(tmp_path:
     fallback_path = tmp_path / "fallback.docx"
     write_docx(fallback_path, ["Allowed DOCX text"])
     fallback = extract_document_text(source, fallback_path)
+
+    assert failure.extracted is None
+    assert failure.diagnostics is not None
+    assert fallback.extracted is not None
+    payload_json = build_ai_safe_source_input(source, fallback.extracted).model_dump_json()
+    assert failure.diagnostics not in payload_json
+    assert failure.error_summary not in payload_json
+
+
+def test_link_fetch_extracts_readable_html_text() -> None:
+    html = """
+    <html>
+      <head><title>Hidden title</title><script>secret()</script></head>
+      <body>
+        <header>Navigation chrome</header>
+        <main>
+          <h1>Research Brief</h1>
+          <p>Useful public source text.</p>
+        </main>
+        <footer>Footer chrome</footer>
+      </body>
+    </html>
+    """
+    client = mock_client(
+        httpx.MockTransport(lambda _request: httpx.Response(200, headers={"content-type": "text/html"}, text=html))
+    )
+
+    result = fetch_link_text(link_record(), client=client)
+
+    assert result.error_summary is None
+    assert result.diagnostics is None
+    assert result.extractor == "html"
+    assert result.extracted is not None
+    assert result.extracted.content_text == "Research Brief\nUseful public source text."
+
+
+def test_link_fetch_non_html_returns_safe_failure() -> None:
+    client = mock_client(
+        httpx.MockTransport(lambda _request: httpx.Response(200, headers={"content-type": "application/pdf"}, text="%PDF"))
+    )
+
+    result = fetch_link_text(link_record(), client=client)
+
+    assert result.extracted is None
+    assert result.error_summary == "Link did not return readable HTML."
+    assert result.diagnostics == "Content-Type: application/pdf"
+    assert result.extractor == "html"
+
+
+def test_link_fetch_timeout_returns_safe_failure_with_internal_diagnostics() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.TimeoutException("timed out", request=request)
+
+    result = fetch_link_text(link_record(), client=mock_client(httpx.MockTransport(handler)))
+
+    assert result.extracted is None
+    assert result.error_summary == "Could not fetch link content."
+    assert result.diagnostics is not None
+    assert result.extractor == "html"
+
+
+def test_link_fetch_blocked_status_returns_safe_failure() -> None:
+    client = mock_client(httpx.MockTransport(lambda _request: httpx.Response(403, text="Forbidden")))
+
+    result = fetch_link_text(link_record(), client=client)
+
+    assert result.extracted is None
+    assert result.error_summary == "Link is blocked or inaccessible."
+    assert result.diagnostics == "HTTP status 403"
+    assert result.extractor == "html"
+
+
+def test_link_fetch_diagnostics_do_not_enter_extracted_text_or_ai_safe_input() -> None:
+    failing_client = mock_client(
+        httpx.MockTransport(lambda _request: httpx.Response(500, headers={"content-type": "text/html"}, text="Error"))
+    )
+    success_client = mock_client(
+        httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200,
+                headers={"content-type": "text/html; charset=utf-8"},
+                text="<main><p>Allowed fetched text.</p></main>",
+            )
+        )
+    )
+    source = link_record()
+
+    failure = fetch_link_text(source, client=failing_client)
+    fallback = fetch_link_text(source, client=success_client)
 
     assert failure.extracted is None
     assert failure.diagnostics is not None

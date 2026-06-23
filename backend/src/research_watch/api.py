@@ -139,10 +139,8 @@ def enrich_source(source_id: str) -> SourceAIEnrichment:
     source = repository.source_record(source_id)
     if source is None:
         raise HTTPException(status_code=404, detail="Source not found.")
-    if source.type == "link":
-        raise HTTPException(status_code=409, detail="Link enrichment is not available until link fetching is implemented.")
     try:
-        return repository.enrich_document_source(source)
+        return repository.enrich_source(source)
     except AIConfigurationError as error:
         raise HTTPException(status_code=503, detail=error.safe_message) from error
     except AIGenerationError as error:

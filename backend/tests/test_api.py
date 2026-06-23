@@ -11,7 +11,7 @@ from research_watch.ai_generation import AIGenerationError, AIGenerationOutput
 from research_watch.ai_store import ai_record_path, read_ai_record, write_ai_record
 from research_watch.api import app, workspace
 from research_watch.markdown_store import read_markdown_record, write_markdown_record
-from research_watch.models import AIRecord, AISafeSourceInput
+from research_watch.models import AIRecord, AISafeSourceInput, ExtractedSourceText, ExtractionResult
 
 
 def client_for(tmp_path: Path) -> TestClient:
@@ -492,17 +492,89 @@ def test_enrich_unknown_source_returns_404(tmp_path: Path) -> None:
     assert response.json()["detail"] == "Source not found."
 
 
-def test_enrich_link_source_returns_409_without_writing_ai_record(tmp_path: Path) -> None:
+def test_enrich_link_source_writes_generated_ai_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_fetch(source: object) -> ExtractionResult:
+        return ExtractionResult(
+            source_id=source.source_id,
+            extracted=ExtractedSourceText(source_id=source.source_id, content_text="Fetched public link text."),
+            extractor="html",
+        )
+
+    def fake_generator(source_input: AISafeSourceInput) -> AIGenerationOutput:
+        assert source_input.source_type == "link"
+        assert source_input.original_url == "https://example.com/research"
+        assert source_input.filename is None
+        assert source_input.content_text == "Fetched public link text."
+        return AIGenerationOutput(
+            summary="Mocked link summary.",
+            ai_generated_tags=["link", "research", "public"],
+            model="test-model",
+        )
+
+    monkeypatch.setattr("research_watch.sync.fetch_link_text", fake_fetch)
+    monkeypatch.setattr("research_watch.sync.generate_with_openai", fake_generator)
+    client = client_for(tmp_path)
+    client.post("/api/users/bootstrap", json={"name": "Ada Confidential", "email": "ada.secret@example.com"})
+    link_response = client.post("/api/links", json={"url": "https://example.com/research", "title": "Example"})
+    assert link_response.status_code == 200
+    source = client.get("/api/sources").json()[0]
+    client.post(
+        f"/api/sources/{source['source_id']}/comments",
+        json={"user_email": "ada.secret@example.com", "body": "Do not send this link note."},
+    )
+    client.post(
+        f"/api/sources/{source['source_id']}/tags",
+        json={"user_email": "ada.secret@example.com", "tag": "human-link-secret"},
+    )
+
+    response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+    ai_record, issues = read_ai_record(tmp_path, source["source_id"])
+
+    assert response.status_code == 200
+    assert issues == []
+    assert ai_record is not None
+    assert ai_record.status == "generated"
+    assert ai_record.source_type == "link"
+    assert ai_record.summary == "Mocked link summary."
+    assert ai_record.ai_generated_tags == ["link", "research", "public"]
+    assert ai_record.extractor == "html"
+    assert ai_record.model == "test-model"
+    serialized = ai_record.model_dump_json()
+    assert "Do not send this link note" not in serialized
+    assert "human-link-secret" not in serialized
+    assert "Ada Confidential" not in serialized
+    assert "ada.secret@example.com" not in serialized
+
+
+def test_enrich_link_fetch_failure_writes_safe_failure_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def failing_fetch(source: object) -> ExtractionResult:
+        return ExtractionResult(
+            source_id=source.source_id,
+            error_summary="Link is blocked or inaccessible.",
+            diagnostics="HTTP status 403",
+            extractor="html",
+        )
+
+    monkeypatch.setattr("research_watch.sync.fetch_link_text", failing_fetch)
     client = client_for(tmp_path)
     link_response = client.post("/api/links", json={"url": "https://example.com/research", "title": "Example"})
     assert link_response.status_code == 200
     source = client.get("/api/sources").json()[0]
 
     response = client.post(f"/api/sources/{source['source_id']}/ai/enrich")
+    ai_record, issues = read_ai_record(tmp_path, source["source_id"])
 
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Link enrichment is not available until link fetching is implemented."
-    assert not ai_record_path(tmp_path, source["source_id"]).exists()
+    assert response.status_code == 200
+    assert response.json()["status"] == "fetch_failed"
+    assert response.json()["error_summary"] == "Link is blocked or inaccessible."
+    assert issues == []
+    assert ai_record is not None
+    assert ai_record.status == "fetch_failed"
+    assert ai_record.source_type == "link"
+    assert ai_record.summary == ""
+    assert ai_record.error_summary == "Link is blocked or inaccessible."
+    assert ai_record.extractor == "html"
+    assert "HTTP status 403" not in ai_record.model_dump_json()
 
 
 def test_enrich_document_source_writes_generated_ai_record_and_detail_loads_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
