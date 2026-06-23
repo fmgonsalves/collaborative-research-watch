@@ -75,7 +75,7 @@ def extract_docx_file(source: SourceRecord, path: Path) -> ExtractionResult:
     if source.type != "document":
         return extraction_failure(source.source_id, "Only local document sources can be extracted.", extractor="python-docx")
     try:
-        document = Document(path)
+        document = Document(str(path))
         paragraph_texts = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
     except Exception as error:
         return extraction_failure(source.source_id, "Could not extract text from DOCX.", repr(error), extractor="python-docx")
