@@ -17,9 +17,9 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Include only the filename basename for document source file metadata in AI-safe input; omit folders and full paths.
 - Extract `.txt`, `.md`, and `.csv` content as raw decoded UTF-8 text in Step 4; do not strip Markdown syntax or reformat CSV rows.
 - Extract PDF text with `pypdf` first; for PDFs longer than 50 pages, inspect only the first 50 pages instead of failing the whole extraction.
-- Treat the first enrichment pass as document-based only; link enrichment returns `409` and writes no AI record until link fetching and HTML extraction exist.
+- Treat the first enrichment pass as document-based only; Step 11 superseded the temporary link `409` behavior with manual link fetching and HTML extraction.
 - Use a deterministic local fake generator for Step 6 so API, extraction, AI-safe input, and AI record writing can be proven before model-provider work.
-- Show AI enrichment in source detail before adding AI browse/search/filter behavior; link sources show a disabled generate action until link fetching exists.
+- Show AI enrichment in source detail before adding AI browse/search/filter behavior; Step 11 later enabled the generate action for link sources.
 - Use the OpenAI Responses API for real Step 8 generation, behind a narrow swappable adapter.
 - Require explicit `OPENAI_API_KEY` and `RESEARCH_WATCH_OPENAI_MODEL`; do not hard-code a default model.
 - Use SDK-native Pydantic structured output for `summary` plus 3-8 lowercase AI-generated tags.
@@ -66,12 +66,12 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 - Added safe PDF failures for malformed PDFs and PDFs with no readable text in the inspected pages.
 - Added `backend/scripts/smoke_pdf_extract.py` for optional developer smoke testing of real PDF extraction with `uv run scripts/smoke_pdf_extract.py /path/to/file.pdf`.
 - Added `POST /api/sources/{source_id}/ai/enrich` for manual document enrichment with deterministic fake output.
-- Added safe `409` rejection for link enrichment until link fetching is implemented.
+- Added temporary safe `409` rejection for link enrichment before Step 11 link fetching existed.
 - Added safe extraction-failure AI record writing for missing, unsafe, unreadable, or unsupported document extraction cases.
 - Kept manual sync separate from enrichment; sync does not create or update AI records.
 - Added source-detail UI for AI enrichment status, AI-generated tags, summary text, and safe error summaries.
 - Added a manual document-only `Generate AI` action that calls the fake enrichment endpoint and refreshes source detail.
-- Kept link enrichment visible but disabled in the UI until link fetching and HTML extraction exist.
+- Kept link enrichment visible but disabled in the UI before Step 11 link fetching and HTML extraction existed.
 - Added the official OpenAI Python SDK as a backend dependency.
 - Added a backend AI generation boundary with SDK-native Pydantic structured-output parsing and a 30,000-character input cap.
 - Wired document enrichment through the real OpenAI generator while keeping the fake generator available as a test double.
@@ -143,7 +143,7 @@ Use `PATH_2_DESIGN.md` as the stable design/spec and `PATH_2_BUILD_ORDER.md` as 
 
 ## Manual/User Test Scope Remaining
 
-- Step 7 manual browser verification passed: document generation worked, link generation was disabled, and human-created tags remained visually separate from AI-generated tags.
+- Step 7 manual browser verification passed at that point in the build sequence: document generation worked, link generation was still disabled, and human-created tags remained visually separate from AI-generated tags.
 
 ## Known Gaps, Risks, Follow-Ups
 

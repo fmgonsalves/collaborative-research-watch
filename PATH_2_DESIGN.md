@@ -103,7 +103,7 @@ Document extraction should produce plain text plus internal diagnostics. Only pl
 
 Extraction components should be replaceable. The rest of the AI enrichment workflow should depend on normalized extracted text and safe diagnostics, not on a specific parser's API or output shape.
 
-Path 2 v1 starts with boring, lightweight extraction:
+Path 2 v1 uses boring, lightweight extraction:
 
 - `.txt`, `.md`, `.csv`: Python standard library.
 - `.pdf`: `pypdf`.
@@ -111,11 +111,13 @@ Path 2 v1 starts with boring, lightweight extraction:
 
 Docling may be evaluated later if the app needs richer document conversion, layout-aware extraction, table handling, OCR support, or Markdown output. Do not make Docling a required Path 2 v1 dependency.
 
-Link fetching should start simple:
+Link fetching uses a conservative first pass:
 
-- Use HTTP fetch with timeout.
-- Extract readable text conservatively from HTML.
+- Use `httpx` HTTP fetch with timeout and redirect following.
+- Extract readable text conservatively from HTML with BeautifulSoup and `lxml`.
+- Remove scripts, styles, metadata, and obvious page chrome before normalizing visible text.
 - Treat paywalled, login-only, blocked, or non-HTML responses as fetch failures.
+- Do not render JavaScript, authenticate, bypass paywalls, solve CAPTCHAs, run readability scoring, or extract non-HTML responses.
 
 Diagnostics and raw parser errors are `app_internal`.
 
@@ -136,7 +138,8 @@ Source detail shows:
 - Human-created tags in the existing human tag area.
 - AI-generated tags in a separate AI-labeled area.
 - AI summary in a separate AI-labeled section.
-- AI status or safe error summary when generation failed.
+- AI status or safe error summary when extraction, fetch, or generation failed.
+- Manual `Generate AI` action for supported document and link sources.
 
 Browse/search/filter may include AI fields after records exist, but human-created tags remain separate from AI-generated tags.
 

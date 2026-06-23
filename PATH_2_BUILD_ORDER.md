@@ -2,6 +2,8 @@
 
 This build order breaks Path 2 into small, testable objectives. Prefer thin vertical slices that prove storage, boundaries, and failure handling before adding richer extraction or model behavior.
 
+Path 2 is now complete through Step 11. Earlier steps intentionally describe temporary behavior at that point in the sequence, such as links returning `409` before link fetching existed.
+
 ## 1. AI Record Storage
 
 Build `records/ai/src_*.md` read/write support before extraction or model calls.
@@ -89,7 +91,7 @@ Endpoint:
 Tests:
 
 - Unknown source returns `404`.
-- Link source returns `409` and does not write an AI record until link fetching exists.
+- At this step, link sources return `409` and do not write AI records because link fetching is not built yet.
 - Valid document source writes a generated AI record.
 - Extraction failure writes a failure AI record.
 - Unsafe or missing document paths fail safely without exposing full local paths.
@@ -111,7 +113,7 @@ UI behavior:
 - Show AI-generated tags separately from human-created tags.
 - Show AI status or safe error summary when enrichment fails.
 - Show an enabled `Generate AI` action for document sources.
-- Show `Generate AI` disabled for link sources until link fetching is implemented.
+- At this step, link source `Generate AI` controls are inactive because link fetching is not built yet.
 - Refresh source detail after successful document enrichment so the new AI record appears immediately.
 
 Tests:
