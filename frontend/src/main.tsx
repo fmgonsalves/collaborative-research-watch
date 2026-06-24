@@ -166,7 +166,7 @@ function App() {
         .then(setDetail)
         .catch(() => setDetail(null));
     }
-  }, [selectedSourceId, sources]);
+  }, [selectedSourceId]);
 
   const runAction = async (action: () => Promise<void>, success: string) => {
     setBusy(true);
@@ -249,6 +249,7 @@ function App() {
 
       <section className="main-grid">
         <div className="browse-pane">
+          <h2>Sources</h2>
           <div className="filters">
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search sources, tags, comments, AI summaries" />
             <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Type filter">

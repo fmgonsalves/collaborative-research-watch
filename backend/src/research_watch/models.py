@@ -33,8 +33,6 @@ class ValidationIssue(BaseModel):
 class UserRecord(BaseModel):
     name: str
     email: str
-
-
 class SourceRecord(BaseModel):
     source_id: str
     type: Literal["document", "link"]
@@ -215,8 +213,6 @@ class TagUpdateRequest(BaseModel):
 class TagSuggestion(BaseModel):
     tag: str
     count: int
-
-
 def display_title_for_path(path: Path) -> str:
     title = path.stem.replace("_", " ").replace("-", " ").strip()
     return title.title() if title else path.name
