@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 import time
 import uuid
 from collections import defaultdict
@@ -35,6 +36,8 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
+
+HASH_CHUNK_SIZE = 1024 * 1024
 
 
 def format_bytes(size: int) -> str:
@@ -74,7 +77,15 @@ def file_content_snapshot(path: Path) -> tuple[int, float]:
     return stat.st_size, stat.st_mtime
 
 
-def document_content_changed(record: SourceRecord, size: int, mtime: float) -> bool:
+def file_content_hash(path: Path, chunk_size: int = HASH_CHUNK_SIZE) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""):
+            digest.update(chunk)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def document_snapshot_changed(record: SourceRecord, size: int, mtime: float) -> bool:
     if record.content_size is None or record.content_mtime is None:
         return False
     return record.content_size != size or record.content_mtime != mtime
@@ -106,6 +117,15 @@ class IntakeSnapshot:
     links_size: int
     sources_dir_mtime_ns: int
     document_stats: tuple[tuple[str, int, float], ...]
+
+
+@dataclass(frozen=True)
+class DocumentCandidate:
+    relative_path: str
+    path: Path
+    content_size: int
+    content_mtime: float
+    content_hash: str
 
 
 class ResearchRepository:
@@ -317,35 +337,11 @@ class ResearchRepository:
         self.sources_dir.mkdir(parents=True, exist_ok=True)
         logger.info("Scanning sources/")
         documents_started = time.perf_counter()
-        processed_document_paths: set[str] = set()
-        for relative_path, record in sorted(by_path.items()):
-            path = self.root / relative_path
-            if not path.is_file():
-                continue
-            processed_document_paths.add(relative_path)
-            file_size, file_mtime = file_content_snapshot(path)
-            record.last_seen_at = now
-            if document_content_changed(record, file_size, file_mtime):
-                logger.info("Document %s (%s) changed (size/mtime)", relative_path, format_bytes(file_size))
-                record.lifecycle_status = "changed"
-                record.updated_at = now
-                record.content_size = file_size
-                record.content_mtime = file_mtime
-                report.changed += 1
-                report.changed_sources.append(sync_source_event(record))
-                self.write_source_record(record, invalidate_cache=False)
-            else:
-                logger.info("Document %s (%s) unchanged (size/mtime)", relative_path, format_bytes(file_size))
-                record.content_size = file_size
-                record.content_mtime = file_mtime
-            seen_ids.add(record.source_id)
-            current_by_id[record.source_id] = record
+        valid_document_paths: dict[str, Path] = {}
         for path in sorted(self.sources_dir.rglob("*")):
             if not path.is_file() or any(part.startswith(".") for part in path.relative_to(self.sources_dir).parts):
                 continue
             relative_path = path.relative_to(self.root).as_posix()
-            if relative_path in processed_document_paths:
-                continue
             if path.suffix.lower() not in SUPPORTED_DOCUMENT_EXTENSIONS:
                 report.invalid += 1
                 logger.info("Document %s unsupported extension: %s", relative_path, path.suffix or "(none)")
@@ -357,17 +353,131 @@ class ResearchRepository:
                     )
                 )
                 continue
+            valid_document_paths[relative_path] = path
+
+        matched_document_paths = set(valid_document_paths).intersection(by_path)
+        missing_document_records = [
+            record
+            for relative_path, record in sorted(by_path.items())
+            if relative_path not in valid_document_paths
+        ]
+        new_document_candidates: list[DocumentCandidate] = []
+
+        for relative_path in sorted(matched_document_paths):
+            record = by_path[relative_path]
+            path = valid_document_paths[relative_path]
             file_size, file_mtime = file_content_snapshot(path)
-            if by_path.get(relative_path) is not None:
+            record.last_seen_at = now
+            should_hash = (
+                document_snapshot_changed(record, file_size, file_mtime)
+                or record.content_hash is None
+                or record.content_updated_at is None
+            )
+            next_hash = file_content_hash(path) if should_hash else record.content_hash
+            if document_snapshot_changed(record, file_size, file_mtime):
+                if record.content_hash and next_hash == record.content_hash:
+                    logger.info("Document %s metadata changed but content hash is stable", relative_path)
+                    record.content_size = file_size
+                    record.content_mtime = file_mtime
+                    record.content_hash = next_hash
+                    record.content_updated_at = record.content_updated_at or record.updated_at
+                    self.write_source_record(record, invalidate_cache=False)
+                else:
+                    logger.info("Document %s (%s) changed (sha256)", relative_path, format_bytes(file_size))
+                    record.lifecycle_status = "changed"
+                    record.updated_at = now
+                    record.content_updated_at = now
+                    record.content_size = file_size
+                    record.content_mtime = file_mtime
+                    record.content_hash = next_hash
+                    report.changed += 1
+                    report.changed_sources.append(sync_source_event(record))
+                    self.write_source_record(record, invalidate_cache=False)
+            else:
+                logger.info("Document %s (%s) unchanged", relative_path, format_bytes(file_size))
+                if should_hash:
+                    record.content_size = file_size
+                    record.content_mtime = file_mtime
+                    record.content_hash = next_hash
+                    record.content_updated_at = record.content_updated_at or record.updated_at
+                    self.write_source_record(record, invalidate_cache=False)
+                else:
+                    record.content_size = file_size
+                    record.content_mtime = file_mtime
+            seen_ids.add(record.source_id)
+            current_by_id[record.source_id] = record
+
+        for relative_path in sorted(set(valid_document_paths) - set(by_path)):
+            path = valid_document_paths[relative_path]
+            file_size, file_mtime = file_content_snapshot(path)
+            new_document_candidates.append(
+                DocumentCandidate(
+                    relative_path=relative_path,
+                    path=path,
+                    content_size=file_size,
+                    content_mtime=file_mtime,
+                    content_hash=file_content_hash(path),
+                )
+            )
+
+        missing_by_hash: dict[str, list[SourceRecord]] = defaultdict(list)
+        for record in missing_document_records:
+            if record.content_hash:
+                missing_by_hash[record.content_hash].append(record)
+        candidates_by_hash: dict[str, list[DocumentCandidate]] = defaultdict(list)
+        for candidate in new_document_candidates:
+            candidates_by_hash[candidate.content_hash].append(candidate)
+
+        renamed_candidate_paths: set[str] = set()
+        for content_hash, missing_records in sorted(missing_by_hash.items()):
+            candidates = candidates_by_hash.get(content_hash, [])
+            if not candidates:
                 continue
-            logger.info("Document %s (%s) new", relative_path, format_bytes(file_size))
+            if len(missing_records) == 1 and len(candidates) == 1:
+                record = missing_records[0]
+                candidate = candidates[0]
+                old_path = record.relative_path
+                record.relative_path = candidate.relative_path
+                record.title = display_title_for_path(candidate.path)
+                record.content_size = candidate.content_size
+                record.content_mtime = candidate.content_mtime
+                record.content_hash = candidate.content_hash
+                record.content_updated_at = record.content_updated_at or record.updated_at
+                record.last_seen_at = now
+                record.updated_at = now
+                self.write_source_record(record, invalidate_cache=False)
+                report.renamed += 1
+                report.renamed_sources.append(sync_source_event(record))
+                seen_ids.add(record.source_id)
+                current_by_id[record.source_id] = record
+                renamed_candidate_paths.add(candidate.relative_path)
+                logger.info("Document %s renamed/moved to %s", old_path, candidate.relative_path)
+                continue
+            report.invalid += 1
+            report.issues.append(
+                ValidationIssue(
+                    code="ambiguous_document_hash",
+                    message=(
+                        "Could not safely preserve document identity because "
+                        f"{len(missing_records)} missing record(s) and {len(candidates)} new file(s) share the same content hash."
+                    ),
+                    path=", ".join(candidate.relative_path for candidate in candidates),
+                )
+            )
+
+        for candidate in new_document_candidates:
+            if candidate.relative_path in renamed_candidate_paths:
+                continue
+            logger.info("Document %s (%s) new", candidate.relative_path, format_bytes(candidate.content_size))
             record = SourceRecord(
                 source_id=source_id(),
                 type="document",
-                title=display_title_for_path(path),
-                relative_path=relative_path,
-                content_size=file_size,
-                content_mtime=file_mtime,
+                title=display_title_for_path(candidate.path),
+                relative_path=candidate.relative_path,
+                content_size=candidate.content_size,
+                content_mtime=candidate.content_mtime,
+                content_hash=candidate.content_hash,
+                content_updated_at=now,
                 date_added=now,
                 last_seen_at=now,
                 updated_at=now,
@@ -380,11 +490,12 @@ class ResearchRepository:
             current_by_id[record.source_id] = record
         documents_elapsed_ms = elapsed_ms(documents_started)
         logger.info(
-            "Documents processed in %dms created=%d changed=%d updated=%d invalid=%d",
+            "Documents processed in %dms created=%d changed=%d updated=%d renamed=%d invalid=%d",
             documents_elapsed_ms,
             report.created,
             report.changed,
             report.updated,
+            report.renamed,
             report.invalid,
         )
 
@@ -465,7 +576,7 @@ class ResearchRepository:
         users, user_issues = read_users(self.root / "users.csv")
         report.issues.extend(user_issues)
         all_records = list(current_by_id.values())
-        intake_changed = report.created + report.changed + report.updated + report.removed + report.invalid > 0
+        intake_changed = report.created + report.changed + report.updated + report.renamed + report.removed + report.invalid > 0
         collaboration_cache_cold = self._comments_cache is None or self._tags_cache is None
         if intake_changed or collaboration_cache_cold:
             self.write_index(all_records, users)
@@ -481,11 +592,12 @@ class ResearchRepository:
         self._intake_snapshot = self._capture_intake_snapshot(final_by_path, links_path)
         total_elapsed_ms = elapsed_ms(sync_started)
         logger.info(
-            "Sync finished in %dms created=%d changed=%d updated=%d removed=%d invalid=%d total=%d",
+            "Sync finished in %dms created=%d changed=%d updated=%d renamed=%d removed=%d invalid=%d total=%d",
             total_elapsed_ms,
             report.created,
             report.changed,
             report.updated,
+            report.renamed,
             report.removed,
             report.invalid,
             report.sources_total,
@@ -571,6 +683,7 @@ class ResearchRepository:
             ai_generated_tags = sorted(ai_record.ai_generated_tags) if ai_record is not None else []
             ai_summary = ai_record.summary if ai_record is not None else ""
             ai_status_value = ai_record.status if ai_record is not None else None
+            ai_generated_at = ai_record.generated_at if ai_record is not None else None
             comment_text = " ".join(comment.body for comment in comments_by_source[record.source_id])
             haystack = " ".join(
                 [
@@ -605,11 +718,13 @@ class ResearchRepository:
                     lifecycle_status=record.lifecycle_status,
                     date_added=record.date_added,
                     updated_at=record.updated_at,
+                    content_updated_at=record.content_updated_at,
                     relative_path=record.relative_path,
                     original_url=record.original_url,
                     human_tags=human_tags,
                     comment_count=len(comments_by_source[record.source_id]),
                     ai_status=ai_status_value,
+                    ai_generated_at=ai_generated_at,
                     ai_generated_tags=ai_generated_tags,
                     ai_summary=ai_summary,
                 )
@@ -644,10 +759,15 @@ class ResearchRepository:
             lifecycle_status=record.lifecycle_status,
             date_added=record.date_added,
             updated_at=record.updated_at,
+            content_updated_at=record.content_updated_at,
             relative_path=record.relative_path,
             original_url=record.original_url,
             human_tags=human_tags,
             comment_count=len(source_comments),
+            ai_status=ai_record.status if ai_record is not None else None,
+            ai_generated_at=ai_record.generated_at if ai_record is not None else None,
+            ai_generated_tags=sorted(ai_record.ai_generated_tags) if ai_record is not None else [],
+            ai_summary=ai_record.summary if ai_record is not None else "",
             open_url=record.original_url,
             open_path=open_path,
             comments=source_comments,

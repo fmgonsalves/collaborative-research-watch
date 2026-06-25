@@ -33,6 +33,8 @@ class ValidationIssue(BaseModel):
 class UserRecord(BaseModel):
     name: str
     email: str
+
+
 class SourceRecord(BaseModel):
     source_id: str
     type: Literal["document", "link"]
@@ -45,6 +47,8 @@ class SourceRecord(BaseModel):
     original_url: str | None = None
     content_size: int | None = None
     content_mtime: float | None = None
+    content_hash: str | None = None
+    content_updated_at: str | None = None
 
 
 class CommentRecord(BaseModel):
@@ -115,11 +119,13 @@ class SourceSummary(BaseModel):
     lifecycle_status: str
     date_added: str
     updated_at: str
+    content_updated_at: str | None = None
     relative_path: str | None = None
     original_url: str | None = None
     human_tags: list[str] = Field(default_factory=list)
     comment_count: int = 0
     ai_status: AIRecordStatus | None = None
+    ai_generated_at: str | None = None
     ai_generated_tags: list[str] = Field(default_factory=list)
     ai_summary: str = ""
 
@@ -161,6 +167,7 @@ class SyncReport(BaseModel):
     sources_total: int
     created: int = 0
     updated: int = 0
+    renamed: int = 0
     changed: int = 0
     removed: int = 0
     removed_comments: int = 0
@@ -169,6 +176,7 @@ class SyncReport(BaseModel):
     created_sources: list[SyncSourceEvent] = Field(default_factory=list)
     changed_sources: list[SyncSourceEvent] = Field(default_factory=list)
     updated_sources: list[SyncSourceEvent] = Field(default_factory=list)
+    renamed_sources: list[SyncSourceEvent] = Field(default_factory=list)
     removed_sources: list[SyncSourceEvent] = Field(default_factory=list)
     issues: list[ValidationIssue] = Field(default_factory=list)
 

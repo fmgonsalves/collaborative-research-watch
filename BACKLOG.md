@@ -41,6 +41,11 @@ This backlog tracks cross-cutting known issues and follow-ups that should not be
   - Source: `origin/main` inline TODOs from `backend/src/research_watch/models.py`.
   - Notes: confirm whether `last_seen_at` provides user or sync value beyond `updated_at`; remove it only with a workspace schema migration plan if it becomes unnecessary.
 
+- Consider a tombstone/history registry for deleted and renamed documents.
+  - Area: sync/storage.
+  - Source: document content hashing implementation.
+  - Notes: full-file hashes can preserve identity for unambiguous rename/move events within one resync, but they do not preserve identity after delete-sync-readd, rename-plus-edit, or other cases where the old record has already been removed or the bytes changed before reconciliation. A tombstone/history registry could preserve deleted document identity, support richer recovery, and improve rename detection beyond exact same-hash moves.
+
 - Move `display_title_for_path` out of models if a better home emerges.
   - Area: code organization.
   - Source: `origin/main` inline TODOs from `backend/src/research_watch/models.py`.

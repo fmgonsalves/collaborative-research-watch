@@ -19,10 +19,12 @@ type SourceSummary = {
   lifecycle_status: string;
   date_added: string;
   updated_at: string;
+  content_updated_at?: string | null;
   relative_path?: string | null;
   original_url?: string | null;
   human_tags: string[];
   ai_status?: AIStatus | null;
+  ai_generated_at?: string | null;
   ai_generated_tags: string[];
   ai_summary: string;
   comment_count: number;
@@ -69,6 +71,7 @@ type SyncReport = {
   sources_total: number;
   created: number;
   updated: number;
+  renamed: number;
   changed: number;
   removed: number;
   removed_comments: number;
@@ -77,12 +80,23 @@ type SyncReport = {
   created_sources: SyncSourceEvent[];
   changed_sources: SyncSourceEvent[];
   updated_sources: SyncSourceEvent[];
+  renamed_sources: SyncSourceEvent[];
   removed_sources: SyncSourceEvent[];
   issues: ValidationIssue[];
 };
 
 function syncEventTarget(event: SyncSourceEvent): string {
   return event.relative_path || event.original_url || event.title;
+}
+
+function formatTimestamp(value?: string | null): string {
+  return value ? new Date(value).toLocaleString() : "None";
+}
+
+function sourceHasStaleAi(source: SourceSummary): boolean {
+  if (source.type !== "document" || !source.content_updated_at) return false;
+  if (!source.ai_generated_at) return true;
+  return new Date(source.ai_generated_at).getTime() < new Date(source.content_updated_at).getTime();
 }
 
 const api = async <T,>(path: string, init?: RequestInit): Promise<T> => {
@@ -492,6 +506,7 @@ function ReportPanel({ report, issues, message }: { report: SyncReport | null; i
             <span>{report.created} created</span>
             <span>{report.changed} changed</span>
             <span>{report.updated} updated</span>
+            <span>{report.renamed} renamed</span>
             <span>{report.removed} removed</span>
             <span>{report.invalid} invalid</span>
           </div>
@@ -505,6 +520,7 @@ function ReportPanel({ report, issues, message }: { report: SyncReport | null; i
             <ReportEventList title="Created" events={report.created_sources} />
             <ReportEventList title="Changed" events={report.changed_sources} />
             <ReportEventList title="Updated" events={report.updated_sources} />
+            <ReportEventList title="Renamed" events={report.renamed_sources} />
             <ReportEventList title="Removed" events={report.removed_sources} />
           </div>
         </>
@@ -538,31 +554,43 @@ function SourceTable({ sources, selectedSourceId, onSelect }: { sources: SourceS
             <th>Title</th>
             <th>Type</th>
             <th>Status</th>
+            <th>Updated</th>
             <th>Human tags</th>
-            <th>AI tags</th>
+            <th>AI</th>
             <th>Comments</th>
           </tr>
         </thead>
         <tbody>
-          {sources.map((source) => (
-            <tr key={source.source_id} className={source.source_id === selectedSourceId ? "selected" : ""} onClick={() => onSelect(source.source_id)}>
-              <td>
-                <strong>{source.title}</strong>
-                <span>{source.original_url || source.relative_path}</span>
-              </td>
-              <td>{source.type}</td>
-              <td><span className={`status ${source.lifecycle_status}`}>{source.lifecycle_status}</span></td>
-              <td>{source.human_tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</td>
-              <td>
-                {source.ai_generated_tags.length > 0 ? (
-                  source.ai_generated_tags.map((tag) => <span className="tag ai-tag" key={tag}>{tag}</span>)
-                ) : (
-                  <span className="muted">None</span>
-                )}
-              </td>
-              <td>{source.comment_count}</td>
-            </tr>
-          ))}
+          {sources.map((source) => {
+            const staleAi = sourceHasStaleAi(source);
+            return (
+              <tr key={source.source_id} className={source.source_id === selectedSourceId ? "selected" : ""} onClick={() => onSelect(source.source_id)}>
+                <td>
+                  <strong>{source.title}</strong>
+                  <span>{source.original_url || source.relative_path}</span>
+                </td>
+                <td>{source.type}</td>
+                <td>
+                  <span className={`status ${source.lifecycle_status}`}>{source.lifecycle_status}</span>
+                  {staleAi && <span className="status ai-stale">AI behind</span>}
+                </td>
+                <td>
+                  <span className="timestamp">Source {formatTimestamp(source.updated_at)}</span>
+                  {source.content_updated_at && <span className="timestamp">Content {formatTimestamp(source.content_updated_at)}</span>}
+                </td>
+                <td>{source.human_tags.map((tag) => <span className="tag" key={tag}>{tag}</span>)}</td>
+                <td>
+                  {source.ai_generated_tags.length > 0 ? (
+                    source.ai_generated_tags.map((tag) => <span className="tag ai-tag" key={tag}>{tag}</span>)
+                  ) : (
+                    <span className="muted">None</span>
+                  )}
+                  <span className={staleAi ? "timestamp stale-text" : "timestamp"}>AI {formatTimestamp(source.ai_generated_at)}</span>
+                </td>
+                <td>{source.comment_count}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       {!sources.length && <p className="empty">No sources match the current view.</p>}
@@ -718,11 +746,18 @@ function DetailPanel({
   }, [detail?.source_id]);
   if (!detail) return <aside className="detail-pane"><p className="empty">Select a source.</p></aside>;
   const userEmail = selectedUser?.email || "";
+  const staleAi = sourceHasStaleAi(detail);
   return (
     <aside className="detail-pane">
       <div className="detail-head">
         <p className="eyebrow">{detail.type} · {detail.lifecycle_status}</p>
         <h2>{detail.title}</h2>
+        <div className="detail-meta-grid">
+          <span>Source updated {formatTimestamp(detail.updated_at)}</span>
+          {detail.content_updated_at && <span>Content updated {formatTimestamp(detail.content_updated_at)}</span>}
+          <span className={staleAi ? "stale-text" : ""}>AI generated {formatTimestamp(detail.ai_generated_at)}</span>
+        </div>
+        {staleAi && <p className="stale-callout">AI enrichment is behind the current document content.</p>}
         {detail.open_url && <a className="open-link" href={detail.open_url} target="_blank" rel="noreferrer">Open link</a>}
         {detail.open_path && <code>{detail.open_path}</code>}
       </div>
@@ -870,13 +905,15 @@ function AIEnrichmentSection({
   onChanged: () => Promise<void>;
 }) {
   const ai = detail.ai;
-  const generatedAt = ai ? new Date(ai.generated_at).toLocaleString() : "";
+  const generatedAt = formatTimestamp(ai?.generated_at);
+  const staleAi = sourceHasStaleAi(detail);
   return (
     <section className="ai-section">
       <div className="section-heading-row">
         <div>
           <h3>AI enrichment</h3>
           <p className="muted">{ai ? `Status: ${ai.status}` : "No AI enrichment yet."}</p>
+          {staleAi && <p className="stale-text">AI is behind the current document content.</p>}
         </div>
         <button
           className="secondary"
@@ -912,7 +949,7 @@ function AIEnrichmentSection({
             </div>
           )}
           {ai.error_summary && <p className="ai-error">{ai.error_summary}</p>}
-          <p className="muted">Updated {generatedAt}</p>
+          <p className={staleAi ? "stale-text" : "muted"}>Generated {generatedAt}</p>
         </div>
       )}
     </section>

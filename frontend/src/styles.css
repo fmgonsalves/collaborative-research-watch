@@ -230,27 +230,31 @@ th {
 }
 
 th:nth-child(1) {
-  width: 34%;
+  width: 26%;
 }
 
 th:nth-child(2) {
-  width: 11%;
+  width: 9%;
 }
 
 th:nth-child(3) {
-  width: 13%;
+  width: 12%;
 }
 
 th:nth-child(4) {
-  width: 15%;
+  width: 17%;
 }
 
 th:nth-child(5) {
-  width: 15%;
+  width: 13%;
 }
 
 th:nth-child(6) {
-  width: 12%;
+  width: 17%;
+}
+
+th:nth-child(7) {
+  width: 6%;
 }
 
 tr {
@@ -270,7 +274,7 @@ td span {
 
 td:nth-child(2),
 td:nth-child(3),
-td:nth-child(6) {
+td:nth-child(7) {
   white-space: nowrap;
 }
 
@@ -297,6 +301,33 @@ td strong,
 
 .status.changed {
   background: #fff2cc;
+}
+
+.status.ai-stale {
+  margin-top: 0.3rem;
+  background: #f8eeee;
+  color: #873434;
+}
+
+.timestamp {
+  display: block;
+  font-size: 0.78rem;
+  color: #687169;
+  line-height: 1.35;
+}
+
+.stale-text {
+  color: #9d2f2f;
+  font-weight: 700;
+}
+
+.stale-callout {
+  margin: 0;
+  padding: 0.55rem 0.65rem;
+  border-radius: 6px;
+  background: #f8eeee;
+  color: #873434;
+  font-size: 0.9rem;
 }
 
 .report-event-lists {
@@ -396,6 +427,13 @@ td strong,
 .detail-head {
   display: grid;
   gap: 0.55rem;
+}
+
+.detail-meta-grid {
+  display: grid;
+  gap: 0.25rem;
+  color: #687169;
+  font-size: 0.88rem;
 }
 
 .detail-head code {

@@ -195,11 +195,12 @@ Source IDs are app-generated. Users may manually add documents without IDs and m
 Matching rules:
 
 - Documents are matched primarily by normalized relative path under `sources/`.
-- File size and modification time are used to detect changed document content after a document has been matched.
+- File size, modification time, and app-internal full-file SHA-256 hashes are used to detect changed document content after a document has been matched.
+- If one missing registered document and one new document file have the same stored SHA-256 hash during the same resync, the app treats that as a rename or move and preserves the existing `source_id`.
 - Links are matched by existing source record or normalized URL.
 - Changed documents keep the same `source_id` and receive lifecycle status `changed`.
 - Removed documents or links are deleted from app-managed records under `records/` (including associated comments and human-tags), with removal reported in the sync report rather than silently dropped.
-- Renaming or moving a document path is treated as removing the old path and adding a new one; collaboration on the old `source_id` does not transfer.
+- Renaming or moving a document path without changing file bytes preserves collaboration when the hash match is unambiguous; rename-plus-edit cases remain remove plus add unless later history support is added.
 - Ambiguous duplicates are reported for human review instead of silently merged.
 
 ### Data Classification
@@ -209,7 +210,7 @@ Every product entity and field should be classified with one of these categories
 | Classification | Meaning | Examples |
 | --- | --- | --- |
 | `source_public` | Source content and source metadata that may be used for AI enrichment. | source ID, source type, title, source URL, extracted source content, AI summary, AI-generated tags |
-| `app_internal` | App/backend may use it; model must not see it. | full local path, content size, content modification time, parser diagnostics, cache keys, local cache metadata, run internals |
+| `app_internal` | App/backend may use it; model must not see it. | full local path, content size, content modification time, content hash, parser diagnostics, cache keys, local cache metadata, run internals |
 | `team_confidential` | Team-visible collaboration data; model must never see it. | user names, user emails, human comments, human-created tags, preferences, attribution |
 
 Important confidentiality rules:

@@ -30,6 +30,9 @@ This ledger tracks implementation progress for the Shared Research Collaboration
 - Added explicit user selection after choosing an existing workspace so collaborators choose their identity before entering the main UI.
 - Added human-created tag suggestions and tag autocomplete based on existing workspace tags.
 - Added sync report details for created, changed, updated, and removed sources, including removal cascade counts for comments and tags.
+- Added full-file streaming SHA-256 document hashes for source identity reconciliation.
+- Added document rename/move detection that preserves `source_id`, comments, human-created tags, and AI records when one missing document and one new document share the same hash during a resync.
+- Added `content_updated_at` for document content freshness and `ai_generated_at` source-summary projection so the UI can show when AI enrichment is behind changed document content.
 - Added backend sync logging for startup, uploads, links, comments, tags, and resync operations.
 - Updated document display-title generation so filename-derived titles are title-cased.
 - Added React type dependencies and tightened the upload file loop.
@@ -55,6 +58,10 @@ This ledger tracks implementation progress for the Shared Research Collaboration
 - Added backend API negative tests for unselected workspace, unknown source/comment/tag requests, invalid user registry, rejected uploads, and invalid request payloads.
 - Reran backend tests after API hardening and user-selection changes: 19 passed, 1 warning.
 - Reran frontend build after user-selection changes: succeeded.
+- Added backend tests for document hashes, content timestamp backfill, in-place edits, metadata-only mtime changes, manual rename/move preservation, rename-plus-edit fallback, delete-sync-readd, duplicate same-hash documents, ambiguous same-hash rename candidates, unsupported files, and hash independence from extractors.
+- Added API tests for `content_updated_at`, `ai_generated_at`, and renamed sync report events.
+- Reran full backend test suite after document hashing work: 92 passed, 1 warning.
+- Reran frontend build after document hashing UI work: succeeded.
 
 ## Automated Test Scope Remaining
 
@@ -80,6 +87,13 @@ This ledger tracks implementation progress for the Shared Research Collaboration
 - Checked a narrow mobile viewport for basic layout presence.
 - Verified desktop layout alignment, filter sizing, long source text handling, and table Type/Status spacing in the in-app browser.
 - Verified unsupported source-file issues show the relevant file path and summarize hidden issues when there are more than four.
+- Verified document upload shows source/content timestamps and stale AI state before enrichment.
+- Verified generating AI adds an AI generation timestamp and clears stale AI for current content.
+- Verified editing a document in place keeps identity, marks it changed, updates content freshness, and shows AI behind until regenerated.
+- Verified manual document rename and move preserve identity and collaboration data.
+- Verified rename-plus-edit falls back to remove plus create.
+- Verified duplicate same-content documents remain separate sources.
+- Verified delete, delete-sync-readd, link intake, and unsupported-file behavior remain as expected.
 
 ## Manual/User Test Scope Remaining
 
@@ -90,3 +104,4 @@ This ledger tracks implementation progress for the Shared Research Collaboration
 - Backend dependencies installed successfully through `uv run pytest`.
 - Backend tests pass with one FastAPI/Starlette TestClient deprecation warning from the installed dependency stack.
 - The app stores selected workspace in backend process memory for Path 1; users reselect after backend restart.
+- Exact hash matching does not preserve identity after delete-sync-readd or rename-plus-edit; `BACKLOG.md` tracks a possible tombstone/history registry for those cases.

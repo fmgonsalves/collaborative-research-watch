@@ -60,6 +60,8 @@ def test_bootstrap_upload_link_sync_and_detail_flow(tmp_path: Path) -> None:
     sources = sources_response.json()
     assert len(sources) == 2
     paper = next(source for source in sources if source["type"] == "document")
+    assert paper["content_updated_at"] is not None
+    assert paper["ai_generated_at"] is None
 
     comment_response = client.post(
         f"/api/sources/{paper['source_id']}/comments",
@@ -82,7 +84,9 @@ def test_bootstrap_upload_link_sync_and_detail_flow(tmp_path: Path) -> None:
 
     upload_sync = upload_response.json()["sync"]
     assert "removed" in upload_sync
+    assert "renamed" in upload_sync
     assert upload_sync["removed"] == 0
+    assert upload_sync["renamed"] == 0
 
     filtered_response = client.get("/api/sources", params={"search": "Read first", "tag": "priority"})
     assert filtered_response.status_code == 200
@@ -179,9 +183,69 @@ def test_source_detail_includes_ai_record_without_merging_human_tags(tmp_path: P
     assert "model" not in detail["ai"]
     summary = summary_response.json()[0]
     assert summary["ai_status"] == "generated"
+    assert summary["ai_generated_at"] == "2026-06-15T12:00:00+00:00"
     assert summary["ai_generated_tags"] == ["methods", "summary"]
     assert summary["ai_summary"] == "AI summary for the paper."
     assert "ai" not in summary
+
+
+def test_source_summary_exposes_content_and_ai_generation_times_for_staleness(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    client.post("/api/users/bootstrap", json={"name": "Ada", "email": "ada@example.com"})
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    source = client.get("/api/sources").json()[0]
+    write_ai_record(
+        tmp_path,
+        AIRecord(
+            source_id=source["source_id"],
+            status="generated",
+            generated_at="2026-01-01T00:00:00+00:00",
+            source_title=source["title"],
+            source_type="document",
+            ai_generated_tags=["methods"],
+            summary="Older AI summary.",
+        ),
+    )
+
+    (tmp_path / "sources" / "paper.md").write_text("# Paper\nUpdated content", encoding="utf-8")
+    sync_response = client.post("/api/sync", json={})
+    summary_response = client.get("/api/sources")
+    detail_response = client.get(f"/api/sources/{source['source_id']}")
+
+    assert sync_response.status_code == 200
+    assert sync_response.json()["changed"] == 1
+    summary = summary_response.json()[0]
+    detail = detail_response.json()
+    assert summary["content_updated_at"] is not None
+    assert summary["ai_generated_at"] == "2026-01-01T00:00:00+00:00"
+    assert detail["content_updated_at"] == summary["content_updated_at"]
+    assert detail["ai_generated_at"] == "2026-01-01T00:00:00+00:00"
+
+
+def test_sync_response_reports_hash_detected_rename(tmp_path: Path) -> None:
+    client = client_for(tmp_path)
+    client.post("/api/users/bootstrap", json={"name": "Ada", "email": "ada@example.com"})
+    client.post(
+        "/api/sources/upload",
+        files={"files": ("paper.md", b"# Paper", "text/markdown")},
+    )
+    source = client.get("/api/sources").json()[0]
+
+    (tmp_path / "sources" / "paper.md").rename(tmp_path / "sources" / "renamed-paper.md")
+    sync_response = client.post("/api/sync", json={})
+    sources = client.get("/api/sources").json()
+
+    assert sync_response.status_code == 200
+    sync = sync_response.json()
+    assert sync["renamed"] == 1
+    assert sync["created"] == 0
+    assert sync["removed"] == 0
+    assert sync["renamed_sources"][0]["source_id"] == source["source_id"]
+    assert sources[0]["source_id"] == source["source_id"]
+    assert sources[0]["relative_path"] == "sources/renamed-paper.md"
 
 
 def test_source_browse_search_and_filters_over_ai_fields_keep_human_tags_separate(tmp_path: Path) -> None:
